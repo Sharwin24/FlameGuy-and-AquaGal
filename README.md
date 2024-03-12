@@ -1,3 +1,5 @@
+# Spring 2024 CS4100: Artificial Intelligence Final Project
+
 
 <p align="center">
   <img src=data/readme_images/banner.png alt="Game Logo"/>
