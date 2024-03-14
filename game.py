@@ -250,6 +250,12 @@ class Game:
                 player_image = player.image
             player_image.set_colorkey((255, 0, 255))
             self.display.blit(player_image, (player.rect.x, player.rect.y))
+            
+    def draw_collectibles(self, collectibles):
+        # draw each of the collectibles
+        for collectible in collectibles:
+            if not collectible.is_collected:
+                self.display.blit(collectible.image, collectible.location)
 
     def move_player(self, board, gates, players):
         """
@@ -414,6 +420,12 @@ class Game:
             door.player_at_door = False
         # attempt to raise door. If nobody is at door, try to close the door
         door.try_raise_door()
+        
+    def check_for_collectible_hit(self, collectbile, player):
+        collectible_collision = self.collision_test(player.rect, [collectbile.get_collectible()])
+        
+        if collectible_collision:
+            collectbile.is_collected = True
 
     @staticmethod
     def level_is_done(doors):

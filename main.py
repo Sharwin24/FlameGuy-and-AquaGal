@@ -15,6 +15,7 @@ from controller import ArrowsController, WASDController, GeneralController
 from gates import Gates
 from doors import FireDoor, WaterDoor
 from level_select import LevelSelect
+from collectibles import FireCollectible, WaterCollectible
 
 
 def main():
@@ -82,6 +83,15 @@ def run_game(game, controller, level="level1"):
         magma_boy = MagmaBoy(magma_boy_location)
         hydro_girl_location = (35, 336)
         hydro_girl = HydroGirl(hydro_girl_location)
+        
+        # arrays for collectibles
+        scaling_fac = 16
+        fire_collectibles = [FireCollectible((11.5 * scaling_fac, 21 * scaling_fac)), 
+                             FireCollectible((8.5 * scaling_fac, 15 * scaling_fac)),
+                             FireCollectible(((12 - (1/8)) * scaling_fac, 9 * scaling_fac))]
+        water_collectibles = [WaterCollectible((19.5 * scaling_fac, 21 * scaling_fac)),
+                              WaterCollectible((17.5 * scaling_fac, 15 * scaling_fac)),
+                              WaterCollectible(((24 + (3/8)) * scaling_fac, 9 * scaling_fac))]
 
     if level == "level2":
         board = Board('data/level2.txt')
@@ -135,6 +145,9 @@ def run_game(game, controller, level="level1"):
 
         # draw player
         game.draw_player([magma_boy, hydro_girl])
+        
+        # draw collcetibles
+        game.draw_collectibles(fire_collectibles + water_collectibles)
 
         # move player
         arrows_controller.control_player(events, magma_boy)
@@ -149,6 +162,13 @@ def run_game(game, controller, level="level1"):
 
         game.check_for_door_open(fire_door, magma_boy)
         game.check_for_door_open(water_door, hydro_girl)
+        
+        # checking to see if collectibles were hit
+        for fire_collectible in fire_collectibles:
+            game.check_for_collectible_hit(fire_collectible, magma_boy)
+            
+        for water_collectible in water_collectibles:
+            game.check_for_collectible_hit(water_collectible, hydro_girl)
 
         # refresh window
         game.refresh_window()
