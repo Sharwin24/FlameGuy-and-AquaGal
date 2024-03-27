@@ -107,6 +107,9 @@ def run_game(game, controller, level="level1"):
         magma_boy = MagmaBoy(magma_boy_location)
         hydro_girl_location = (35, 336)
         hydro_girl = HydroGirl(hydro_girl_location)
+        
+        fire_collectibles = []
+        water_collectibles = []
 
     if level == "level3":
         board = Board('data/level3.txt')
@@ -122,6 +125,10 @@ def run_game(game, controller, level="level1"):
         magma_boy = MagmaBoy(magma_boy_location)
         hydro_girl_location = (5 * 16, 4 * 16)
         hydro_girl = HydroGirl(hydro_girl_location)
+        
+        fire_collectibles = []
+        water_collectibles = []
+
 
     # initialize needed classes
 
