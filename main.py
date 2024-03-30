@@ -24,7 +24,6 @@ def main():
     game = Game()
     show_intro_screen(game, controller)
 
-
 def show_intro_screen(game, controller):
     intro_screen = pygame.image.load('data/screens/intro_screen.png')
     game.display.blit(intro_screen, (0, 0))
@@ -159,6 +158,10 @@ def run_game(game, controller, level="level1"):
         # move player
         arrows_controller.control_player(events, magma_boy)
         wasd_controller.control_player(events, hydro_girl)
+        # right here is where i see us being able to "plug in" AI players - if we change the controler to be some
+        # other kind of object, maybe one that does not read in an "events" object, but instead reads in an array of
+        # the board, then theoretically we can visualize this. getting the AI in its own object is an interesting challenge
+        # though.
 
         game.move_player(board, gates, [magma_boy, hydro_girl])
 
@@ -195,7 +198,6 @@ def run_game(game, controller, level="level1"):
             if event.type == QUIT:
                 pygame.quit()
                 sys.exit()
-
 
 if __name__ == '__main__':
     main()
