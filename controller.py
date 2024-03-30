@@ -7,7 +7,7 @@ class Controller:
     def __init__(self):
         pass
 
-    def control_player(self, events, player):
+    def control_player(self, events, player, game):
         """
         Take keyboard inputs and update player motion variables.
 
@@ -89,7 +89,7 @@ class WASDController(Controller):
             "up": K_w
         }
         super().__init__()
-
+            
 
 class GeneralController(Controller):
     # create a general controller that is not tied to a specific player. This

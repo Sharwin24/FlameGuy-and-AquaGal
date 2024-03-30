@@ -12,6 +12,7 @@ from game import Game
 from board import Board
 from character import MagmaBoy, HydroGirl
 from controller import ArrowsController, WASDController, GeneralController
+# from ai_controller import AIController - commented out as it seems that the NN is crashing my laptop, at least
 from gates import Gates
 from doors import FireDoor, WaterDoor
 from level_select import LevelSelect
@@ -132,6 +133,7 @@ def run_game(game, controller, level="level1"):
     # initialize needed classes
 
     arrows_controller = ArrowsController()
+    #ai_controller = AIController()
     wasd_controller = WASDController()
 
     clock = pygame.time.Clock()
@@ -156,8 +158,9 @@ def run_game(game, controller, level="level1"):
         game.draw_collectibles(fire_collectibles + water_collectibles)
 
         # move player
-        arrows_controller.control_player(events, magma_boy)
-        wasd_controller.control_player(events, hydro_girl)
+        arrows_controller.control_player(events, magma_boy, game)
+        #ai_controller.control_player(events, magma_boy, game)
+        wasd_controller.control_player(events, hydro_girl, game)
         # right here is where i see us being able to "plug in" AI players - if we change the controler to be some
         # other kind of object, maybe one that does not read in an "events" object, but instead reads in an array of
         # the board, then theoretically we can visualize this. getting the AI in its own object is an interesting challenge

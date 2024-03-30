@@ -10,10 +10,15 @@ from controller import GeneralController
 import sys
 import numpy as np
 
+import torch
+from neural_network import Net
+
 class Training_Game():
     def __init__(self, game, controller, level="level1"):
         self.game = game
         self.controller = controller
+        self.timer = 0
+        self.is_ended = False
         
         if level == "level1":
             self.board = Board('data/level1.txt')
@@ -36,11 +41,11 @@ class Training_Game():
             # arrays for collectibles
             scaling_fac = 16
             self.fire_collectibles = [FireCollectible((11.5 * scaling_fac, 21 * scaling_fac)), 
-                                FireCollectible((8.5 * scaling_fac, 15 * scaling_fac)),
-                                FireCollectible(((12 - (1/8)) * scaling_fac, 9 * scaling_fac))]
+                                      FireCollectible((8.5 * scaling_fac, 15 * scaling_fac)),
+                                      FireCollectible(((12 - (1/8)) * scaling_fac, 9 * scaling_fac))]
             self.water_collectibles = [WaterCollectible((19.5 * scaling_fac, 21 * scaling_fac)),
-                                WaterCollectible((17.5 * scaling_fac, 15 * scaling_fac)),
-                                WaterCollectible(((24 + (3/8)) * scaling_fac, 9 * scaling_fac))]
+                                       WaterCollectible((17.5 * scaling_fac, 15 * scaling_fac)),
+                                       WaterCollectible(((24 + (3/8)) * scaling_fac, 9 * scaling_fac))]
             
         # initializing clock for timeouts
         self.clock = pygame.time.Clock()
@@ -50,6 +55,8 @@ class Training_Game():
         
     # runs the actual game loop
     def update_loop(self):
+        self.timer += 1
+        
         # pygame management
         self.clock.tick(60)
         events = pygame.event.get()
@@ -89,12 +96,15 @@ class Training_Game():
 
         # special events
         if self.hydro_girl.is_dead() or self.magma_boy.is_dead():
+            self.is_ended = True
             sys.exit()
 
         if self.game.level_is_done(self.doors):
+            self.is_ended = True
             sys.exit()
 
         if self.controller.press_key(events, K_ESCAPE):
+            self.is_ended = True
             sys.exit()
 
         # close window is player clicks on [x]
@@ -103,58 +113,122 @@ class Training_Game():
                 pygame.quit()
                 sys.exit()
         
-    # define an abstract action space (think of this as pressing a key)
-    def move_player(self, player, dir):
-        if dir == "right":
-            player.moving_right = True
-        elif dir == "left":
-            player.moving_left = True
-        elif dir == "jump":
-            player.jumping = True
-            
+    # define an action space to move both players, and update the game
+    # - note that the order is [magma_boy_action, hydro_girl_action]
+    def move_players(self, dirs):
+        # parse both directions and players at the same time
+        for dir, player in zip(dirs, [self.magma_boy, self.hydro_girl]):
+            if dir == "right":
+                player.moving_right = True
+            elif dir == "notright":
+                player.moving_right = False
+            elif dir == "left":
+                player.moving_left = True
+            elif dir == "notleft":
+                player.moving_left = False
+            elif dir == "jump":
+                if player.air_timer < 6:
+                    player.jumping = True
+            elif dir == "notjump":
+                player.jumping = False
+            else:
+                raise(KeyError("Not a valid move!"))
+
+        # update game with new actions
         self.update_loop()
-        
-    # define the above abstract space, but for un-moving (think of this as letting go of a key)
-    def unmove_player(self, player, dir):
-        if dir == "right":
-            player.moving_right = False
-        elif dir == "left":
-            player.moving_left = False
-        elif dir == "jump":
-            player.jumping = False
-            
-        self.update_loop()
-    
-    # move magma boy
-    def move_magma(self, dir):
-        self.move_player(self.magma_boy, dir)
-        
-    # unmove magma boy
-    def unmove_magma(self, dir):
-        self.unmove_player(self.magma_boy, dir)
-        
-    # move hydro girl
-    def move_hydro(self, dir):
-        self.move_player(self.hydro_girl, dir)
-        
-    # unmove hydro girl
-    def unmove_hydro(self, dir):
-        self.move_player(self.hydro_girl, dir)
     
     # return the board as a 3d array (change this to torch tensor at some point?)
     def return_board(self):
-        return pygame.surfarray.array3d(self.game.display)
+        disp = pygame.surfarray.array3d(self.game.display)
+        return torch.from_numpy(np.moveaxis(disp, -1, 0)).float()
     
-    # loss function - sum of the time and distance from nearest gem
+    # define the closest gem to magma boy - if all gems are collected, the door is the closest gem
+    def get_closest_gem(self, player, collectibles, door):
+        for collectible in collectibles:
+            if not(collectible.is_collected):
+                return np.sqrt(((player.rect[0] - collectible.location[0]) ** 2) + \
+                    ((player.rect[1] - collectible.location[1]) ** 2))
+        return np.sqrt(((player.rect[0] - door.door_location[0]) ** 2) + \
+                    ((player.rect[1] - door.door_location[1]) ** 2))
+    
+    def get_closest_magma_gem(self):
+        return self.get_closest_gem(self.magma_boy, self.fire_collectibles, self.fire_door)
+    
+    def get_closest_hydro_gem(self):
+        return self.get_closest_gem(self.hydro_girl, self.water_collectibles, self.water_door)
+    
+    # loss function - sum of the time (mess with values) and distance from nearest gem
     def loss_function(self): 
-        return 0 # that is, when i'm not incredibly lazy
-                    
-controller = GeneralController()
-game = Game()
-tg = Training_Game(game, controller)
+        loss_val = self.get_closest_magma_gem() + self.get_closest_hydro_gem() + self.timer
+        return torch.tensor(loss_val, requires_grad = True)
 
 # things to do from here - create a NN to minimize loss function
 # - NN takes in tg.return_board as an input (change this to be a torch tensor, make it work on GPU)
 # - make loss function work?
 # - SGD optimizer?
 # and then we somehow export this model into its own controller object, which we can "plug in" to main function
+
+# create both AI models, playing the same game
+# both models take in a board (given by tg.return_board()) and give an action from the following action space:
+# - move right
+# - move left
+# - move up
+# - unmove right
+# - unmove left
+# - unmove up
+magma_boy_model = Net()
+hydro_girl_model = Net()
+
+# optimizer and loss function
+magma_boy_optimizer = torch.optim.SGD(magma_boy_model.parameters(), lr = 0.01)
+hydro_girl_optimizer = torch.optim.SGD(hydro_girl_model.parameters(), lr = 0.01)
+
+action_dict = {
+    0: "right",
+    1: "notright",
+    2: "left",
+    3: "notleft",
+    4: "jump",
+    5: "notjump"
+}
+
+games = 10
+max_iterations = 1000
+run_thing = False
+if run_thing:
+    for j in range(games):
+        # initialize a new game
+        controller = GeneralController()
+        game = Game()
+        tg = Training_Game(game, controller)
+        
+        for i in range(max_iterations):
+            # get the initial state at the beginning of the iteration
+            state = tg.return_board()
+            
+            # get the action from the model for both agents from the board
+            magma_boy_actionspace = magma_boy_model(state)
+            hydro_girl_actionspace = hydro_girl_model(state)
+            magma_boy_action = torch.multinomial(magma_boy_actionspace, num_samples = 1)
+            hydro_girl_action = torch.multinomial(hydro_girl_actionspace, num_samples = 1)
+            
+            # get loss function based on the actions taken
+            tg.move_players([action_dict[int(magma_boy_action)], action_dict[int(hydro_girl_action)]])
+            loss = tg.loss_function()
+            
+            # backward pass (don't understand what this is really)
+            magma_boy_optimizer.zero_grad()
+            hydro_girl_optimizer.zero_grad()
+            loss.backward()
+            magma_boy_optimizer.step()
+            hydro_girl_optimizer.step()
+            
+            if tg.is_ended:
+                print("someone died")
+                break
+            
+            print(loss)
+            
+# once training is done, save the parameters to be used in a different file
+torch.save(magma_boy_model.state_dict(), 'magma_boy_params.pth')
+torch.save(hydro_girl_model.state_dict(), 'hydro_girl_params.pth')
