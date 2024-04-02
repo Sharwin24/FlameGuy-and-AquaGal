@@ -2,13 +2,14 @@ from controller import Controller
 import torch
 from neural_network import Net
 import pygame
+import numpy as np
     
 # controller that takes in a gamestate and gives outputs based off of that    
 class AIController(Controller):
-    def __init__(self):
+    def __init__(self, dir):
         # initialize and load trained NN, make sure its in eval mode
         self.net = Net()
-        self.net.load_state_dict(torch.load("magma_boy_params.pth"))
+        self.net.load_state_dict(torch.load(dir))
         self.net.eval()
         
         # actionspace
@@ -22,10 +23,11 @@ class AIController(Controller):
         }
         
     def control_player(self, events, player, game):
-        board_tensor = torch.tensor(pygame.surfarray.array3d(game.display), requires_grad = True)
-        movespace = self.net(float(board_tensor))
-        move = torch.multinomial(movespace, num_samples = 1)
-        move_name = self.action_dict(int(move))
+        disp = pygame.surfarray.array3d(game.display)
+        board_tensor = torch.from_numpy(np.moveaxis(disp, -1, 0)).float()
+        print(self.net(board_tensor))
+        move = torch.argmax(self.net(board_tensor)).item()
+        move_name = self.action_dict[int(move)]
         
         if move_name == "right":
             player.moving_right = True

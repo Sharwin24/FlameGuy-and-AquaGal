@@ -12,7 +12,7 @@ from game import Game
 from board import Board
 from character import MagmaBoy, HydroGirl
 from controller import ArrowsController, WASDController, GeneralController
-# from ai_controller import AIController - commented out as it seems that the NN is crashing my laptop, at least
+from ai_controller import AIController
 from gates import Gates
 from doors import FireDoor, WaterDoor
 from level_select import LevelSelect
@@ -132,8 +132,8 @@ def run_game(game, controller, level="level1"):
 
     # initialize needed classes
 
-    arrows_controller = ArrowsController()
-    #ai_controller = AIController()
+    #arrows_controller = ArrowsController()
+    arrows_controller = AIController('C:\\Users\\Jackson\\Downloads\\magma_boy_params.pth')
     wasd_controller = WASDController()
 
     clock = pygame.time.Clock()

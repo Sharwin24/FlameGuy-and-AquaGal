@@ -14,10 +14,9 @@ class Net(nn.Module):
         self.fc2 = nn.Linear(512, 256)
         self.fc3 = nn.Linear(256, 6)
         self.relu = nn.ReLU()
-        self.final_activation = nn.LogSoftmax(dim=1)
     
     def forward(self, x):
-        x = self.pool(self.relu(self.conv1(x))) 
+        x = self.pool(self.relu(self.conv1(x)))
         x = self.pool(self.relu(self.conv2(x)))
         x = self.pool(self.relu(self.conv3(x)))
         x = torch.flatten(x, 0)
@@ -25,5 +24,4 @@ class Net(nn.Module):
         x = self.relu(self.fc1(x))
         x = self.relu(self.fc2(x))
         x = self.fc3(x)
-        x = torch.nn.functional.softmax(x, dim = 0)
         return x

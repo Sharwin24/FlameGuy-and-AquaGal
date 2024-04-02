@@ -13,6 +13,14 @@ import numpy as np
 import torch
 from neural_network import Net
 
+if torch.backends.mps.is_available():
+	device=torch.device("mps")
+elif torch.cuda.is_available():
+	device=torch.device("cuda")
+else:
+	device=torch.device("cpu")
+print(device)
+ 
 class Training_Game():
     def __init__(self, game, controller, level="level1"):
         self.game = game
@@ -92,20 +100,17 @@ class Training_Game():
             self.game.check_for_collectible_hit(water_collectible, self.hydro_girl)
 
         # refresh window
-        self.game.refresh_window()
+        # self.game.refresh_window()
 
         # special events
         if self.hydro_girl.is_dead() or self.magma_boy.is_dead():
             self.is_ended = True
-            sys.exit()
 
         if self.game.level_is_done(self.doors):
             self.is_ended = True
-            sys.exit()
 
         if self.controller.press_key(events, K_ESCAPE):
             self.is_ended = True
-            sys.exit()
 
         # close window is player clicks on [x]
         for event in events:
@@ -115,7 +120,17 @@ class Training_Game():
         
     # define an action space to move both players, and update the game
     # - note that the order is [magma_boy_action, hydro_girl_action]
-    def move_players(self, dirs):
+    def step(self, dirs):
+        # determine the number of collectibles before stepping
+        num_before_fire = 0
+        for collectible in self.fire_collectibles:
+            if not(collectible.is_collected):
+                num_before_fire += 1
+        num_before_water = 0
+        for collectible in self.water_collectibles:
+            if not(collectible.is_collected):
+                num_before_water += 1
+        
         # parse both directions and players at the same time
         for dir, player in zip(dirs, [self.magma_boy, self.hydro_girl]):
             if dir == "right":
@@ -136,6 +151,22 @@ class Training_Game():
 
         # update game with new actions
         self.update_loop()
+        
+        # determine the number of collectibles after stepping
+        num_after_fire = 0
+        for collectible in self.fire_collectibles:
+            if not(collectible.is_collected):
+                num_after_fire += 1
+        num_after_water = 0
+        for collectible in self.water_collectibles:
+            if not(collectible.is_collected):
+                num_after_water += 1
+                
+        reward = [(num_after_fire - num_before_fire) * 500, (num_after_water - num_before_water) * 500]
+            
+        # returns state, reward, terminated (similar to gymnasium)
+        return self.return_board(), reward, self.is_ended
+
     
     # return the board as a 3d array (change this to torch tensor at some point?)
     def return_board(self):
@@ -155,18 +186,43 @@ class Training_Game():
         return self.get_closest_gem(self.magma_boy, self.fire_collectibles, self.fire_door)
     
     def get_closest_hydro_gem(self):
-        return self.get_closest_gem(self.hydro_girl, self.water_collectibles, self.water_door)
+        return self.get_closest_gem(self.hydro_girl, self.water_collectibles, self.water_door)        
     
-    # loss function - sum of the time (mess with values) and distance from nearest gem
-    def loss_function(self): 
-        loss_val = self.get_closest_magma_gem() + self.get_closest_hydro_gem() + self.timer
-        return torch.tensor(loss_val, requires_grad = True)
-
-# things to do from here - create a NN to minimize loss function
-# - NN takes in tg.return_board as an input (change this to be a torch tensor, make it work on GPU)
-# - make loss function work?
-# - SGD optimizer?
-# and then we somehow export this model into its own controller object, which we can "plug in" to main function
+class Model():
+    # initializing model with hyperparameters, optimizer (SGD), and loss function (MSE)
+    def __init__(self, model, lr, gamma):
+        self.model = model
+        self.lr = lr
+        self.gamma = gamma
+        self.optimizer = torch.optim.SGD(model.parameters(), lr = self.lr)
+        self.criterion = torch.nn.MSELoss()
+        
+    # training step
+    
+    # the purpose of this is to calculate a set of Q(s, a) given s and the possible values of a
+    # this gives us a 1x6 tensor, with each action having its own Q given the state
+    # now, we compare the value of Q calculated by the model with a new value of Q, Q_new, which takes into account
+    # the reward at the next possible states, as well as the Q values of all actions taken at the next state
+    def train_step(self, state, action, reward, next_state, terminated):
+        state = torch.tensor(state, dtype = torch.float)
+        reward = torch.tensor(reward, dtype = torch.float)
+        next_state = torch.tensor(next_state, dtype = torch.float)
+        
+        self.optimizer.zero_grad()
+        
+        current_Q_vals = self.model(state)
+        pred_Q = current_Q_vals.squeeze()[action]
+        
+        next_Q_vals = self.model(next_state)
+        max_next_Q = torch.max(next_Q_vals).item()
+        target_Q = reward + (self.gamma * max_next_Q * (1 - int(terminated)))
+        
+        loss = self.criterion(pred_Q.to(device), target_Q.to(device))
+        loss.backward()
+        self.optimizer.step()
+        print(loss)
+        
+        
 
 # create both AI models, playing the same game
 # both models take in a board (given by tg.return_board()) and give an action from the following action space:
@@ -176,12 +232,10 @@ class Training_Game():
 # - unmove right
 # - unmove left
 # - unmove up
-magma_boy_model = Net()
-hydro_girl_model = Net()
-
-# optimizer and loss function
-magma_boy_optimizer = torch.optim.SGD(magma_boy_model.parameters(), lr = 0.01)
-hydro_girl_optimizer = torch.optim.SGD(hydro_girl_model.parameters(), lr = 0.01)
+magma_boy_model = Model(Net(), 0.1, 0.95)
+hydro_girl_model = Model(Net(), 0.1, 0.95)
+magma_boy_model.model.to(device)
+hydro_girl_model.model.to(device)
 
 action_dict = {
     0: "right",
@@ -193,8 +247,10 @@ action_dict = {
 }
 
 games = 10
-max_iterations = 1000
-run_thing = False
+max_iterations = 100
+run_thing = True
+epsilon = 0.99
+
 if run_thing:
     for j in range(games):
         # initialize a new game
@@ -205,30 +261,34 @@ if run_thing:
         for i in range(max_iterations):
             # get the initial state at the beginning of the iteration
             state = tg.return_board()
+            state = state.to(device)
             
             # get the action from the model for both agents from the board
-            magma_boy_actionspace = magma_boy_model(state)
-            hydro_girl_actionspace = hydro_girl_model(state)
-            magma_boy_action = torch.multinomial(magma_boy_actionspace, num_samples = 1)
-            hydro_girl_action = torch.multinomial(hydro_girl_actionspace, num_samples = 1)
+            magma_boy_model_res = magma_boy_model.model(state)
+            hydro_girl_model_res = hydro_girl_model.model(state)
+            if np.random.rand() < epsilon:
+                magma_boy_action = np.random.randint(6)
+                hydro_girl_action = np.random.randint(6)
+            else:
+                magma_boy_action = torch.argmax(magma_boy_model_res).item()
+                hydro_girl_action = torch.argmax(hydro_girl_model_res).item()
+                
+            epsilon = epsilon * 0.99
             
             # get loss function based on the actions taken
-            tg.move_players([action_dict[int(magma_boy_action)], action_dict[int(hydro_girl_action)]])
-            loss = tg.loss_function()
+            next_state, rewards, terminated = tg.step([action_dict[int(magma_boy_action)], action_dict[int(hydro_girl_action)]])
+            next_state = next_state.to(device)
+            print(rewards)
             
-            # backward pass (don't understand what this is really)
-            magma_boy_optimizer.zero_grad()
-            hydro_girl_optimizer.zero_grad()
-            loss.backward()
-            magma_boy_optimizer.step()
-            hydro_girl_optimizer.step()
+            # apply training based on the current state, action, reward achieved from that action, and next state
+            magma_boy_model.train_step(state, magma_boy_action, rewards[0], next_state, terminated)
+            hydro_girl_model.train_step(state, hydro_girl_action, rewards[1], next_state, terminated)
             
             if tg.is_ended:
                 print("someone died")
                 break
             
-            print(loss)
-            
 # once training is done, save the parameters to be used in a different file
-torch.save(magma_boy_model.state_dict(), 'magma_boy_params.pth')
-torch.save(hydro_girl_model.state_dict(), 'hydro_girl_params.pth')
+# addresses are kept locally because i was having trouble installing the pth files to where the git dir was
+torch.save(magma_boy_model.model.state_dict(), 'C:\\Users\\Jackson\\Downloads\\magma_boy_params.pth')
+torch.save(hydro_girl_model.model.state_dict(), 'C:\\Users\\Jackson\\Downloads\\hydro_girl_params.pth')
