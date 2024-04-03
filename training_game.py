@@ -9,9 +9,12 @@ from character import MagmaBoy, HydroGirl
 from controller import GeneralController
 import sys
 import numpy as np
-
+from collections import deque
 import torch
 from neural_network import Net
+
+MAX_MEMORY = 50_000
+BATCH_SIZE = 1000
 
 if torch.backends.mps.is_available():
 	device=torch.device("mps")
@@ -79,7 +82,7 @@ class Training_Game():
         # draw player
         self.game.draw_player([self.magma_boy, self.hydro_girl])
         
-        # draw collcetibles
+        # draw collectibles
         self.game.draw_collectibles(self.fire_collectibles + self.water_collectibles)
 
         self.game.move_player(self.board, self.gates, [self.magma_boy, self.hydro_girl])
@@ -100,7 +103,7 @@ class Training_Game():
             self.game.check_for_collectible_hit(water_collectible, self.hydro_girl)
 
         # refresh window
-        # self.game.refresh_window()
+        self.game.refresh_window()
 
         # special events
         if self.hydro_girl.is_dead() or self.magma_boy.is_dead():
@@ -120,15 +123,15 @@ class Training_Game():
         
     # define an action space to move both players, and update the game
     # - note that the order is [magma_boy_action, hydro_girl_action]
-    def step(self, dirs):
+    def play_step(self, dirs):
         # determine the number of collectibles before stepping
         num_before_fire = 0
         for collectible in self.fire_collectibles:
-            if not(collectible.is_collected):
+            if collectible.is_collected:
                 num_before_fire += 1
         num_before_water = 0
         for collectible in self.water_collectibles:
-            if not(collectible.is_collected):
+            if collectible.is_collected:
                 num_before_water += 1
         
         # parse both directions and players at the same time
@@ -155,17 +158,32 @@ class Training_Game():
         # determine the number of collectibles after stepping
         num_after_fire = 0
         for collectible in self.fire_collectibles:
-            if not(collectible.is_collected):
+            if collectible.is_collected:
                 num_after_fire += 1
         num_after_water = 0
         for collectible in self.water_collectibles:
-            if not(collectible.is_collected):
+            if collectible.is_collected:
                 num_after_water += 1
-                
-        reward = [(num_after_fire - num_before_fire) * 500, (num_after_water - num_before_water) * 500]
+
+        # calculate reward, considering speed
+        reward = [(num_after_fire - num_before_fire) * 300 * self.scale_reward_by_time(), (num_after_water - num_before_water) * 300 * self.scale_reward_by_time()]
+        if (num_after_fire != num_before_fire or num_after_water != num_before_water):
+            print("Gained collectible")
+            print(reward)
+
+        # check for penalizing/rewarding game end conditions
+        if self.game.level_is_done(self.doors):
+            reward[0] += 2000
+            reward[1] += 2000
             
         # returns state, reward, terminated (similar to gymnasium)
         return self.return_board(), reward, self.is_ended
+    
+    def scale_reward_by_time(self):
+        if self.timer <= 120:
+            return ((240 - self.timer) / 120)
+        else:
+            return 1
 
     
     # return the board as a 3d array (change this to torch tensor at some point?)
@@ -192,10 +210,28 @@ class Model():
     # initializing model with hyperparameters, optimizer (SGD), and loss function (MSE)
     def __init__(self, model, lr, gamma):
         self.model = model
+        self.memory = deque(maxlen=MAX_MEMORY)
         self.lr = lr
         self.gamma = gamma
         self.optimizer = torch.optim.SGD(model.parameters(), lr = self.lr)
         self.criterion = torch.nn.MSELoss()
+
+    def remember(self, state, action, reward, next_state, done):
+        self.memory.append((state, action, reward, next_state, done)) # popleft if MAX_MEMORY is reached
+
+    def train_short_memory(self, state, action, reward, next_state, done):
+        self.train_step(state, action, reward, next_state, done)
+    
+    def train_long_memory(self):
+        if len(self.memory) > BATCH_SIZE:
+            mini_sample = random.sample(self.memory, BATCH_SIZE)
+        else:
+            mini_sample = self.memory
+
+        states, actions, rewards, next_states, dones = zip(*mini_sample)
+        # self.train_step(states, actions, rewards, next_states, dones)
+        for state, action, reward, nexrt_state, done in mini_sample:
+            self.train_step(state, action, reward, next_state, done)
         
     # training step
     
@@ -220,7 +256,6 @@ class Model():
         loss = self.criterion(pred_Q.to(device), target_Q.to(device))
         loss.backward()
         self.optimizer.step()
-        print(loss)
         
         
 
@@ -276,19 +311,22 @@ if run_thing:
             epsilon = epsilon * 0.99
             
             # get loss function based on the actions taken
-            next_state, rewards, terminated = tg.step([action_dict[int(magma_boy_action)], action_dict[int(hydro_girl_action)]])
+            next_state, rewards, terminated = tg.play_step([action_dict[int(magma_boy_action)], action_dict[int(hydro_girl_action)]])
             next_state = next_state.to(device)
-            print(rewards)
             
             # apply training based on the current state, action, reward achieved from that action, and next state
-            magma_boy_model.train_step(state, magma_boy_action, rewards[0], next_state, terminated)
-            hydro_girl_model.train_step(state, hydro_girl_action, rewards[1], next_state, terminated)
+            magma_boy_model.train_short_memory(state, magma_boy_action, rewards[0], next_state, terminated)
+            hydro_girl_model.train_short_memory(state, hydro_girl_action, rewards[1], next_state, terminated)
             
+            magma_boy_model.remember(state, magma_boy_action, rewards[0], next_state, terminated)
+            hydro_girl_model.remember(state, hydro_girl_action, rewards[1], next_state, terminated)
             if tg.is_ended:
-                print("someone died")
+                magma_boy_model.train_long_memory()
+                hydro_girl_model.train_long_memory()
+                print("Someone died")
                 break
             
 # once training is done, save the parameters to be used in a different file
 # addresses are kept locally because i was having trouble installing the pth files to where the git dir was
-torch.save(magma_boy_model.model.state_dict(), 'C:\\Users\\Jackson\\Downloads\\magma_boy_params.pth')
-torch.save(hydro_girl_model.model.state_dict(), 'C:\\Users\\Jackson\\Downloads\\hydro_girl_params.pth')
+torch.save(magma_boy_model.model.state_dict(), 'C:\\Users\\nickh\\Downloads\\magma_boy_params.pth')
+torch.save(hydro_girl_model.model.state_dict(), 'C:\\Users\\nickh\\Downloads\\hydro_girl_params.pth')

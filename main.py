@@ -133,7 +133,7 @@ def run_game(game, controller, level="level1"):
     # initialize needed classes
 
     #arrows_controller = ArrowsController()
-    arrows_controller = AIController('C:\\Users\\Jackson\\Downloads\\magma_boy_params.pth')
+    arrows_controller = AIController('C:\\Users\\nickh\\Downloads\\magma_boy_params.pth')
     wasd_controller = WASDController()
 
     clock = pygame.time.Clock()
@@ -154,7 +154,7 @@ def run_game(game, controller, level="level1"):
         # draw player
         game.draw_player([magma_boy, hydro_girl])
         
-        # draw collcetibles
+        # draw collectibles
         game.draw_collectibles(fire_collectibles + water_collectibles)
 
         # move player
