@@ -12,8 +12,9 @@ import numpy as np
 from collections import deque
 import torch
 from neural_network import Net
+import random
 
-MAX_MEMORY = 50_000
+MAX_MEMORY = 10_000
 BATCH_SIZE = 1000
 
 if torch.backends.mps.is_available():
@@ -24,6 +25,8 @@ else:
 	device=torch.device("cpu")
 print(device)
  
+ 
+# ENVIRONMENT CLASS -------------------------------------------------------------------------------
 class Training_Game():
     def __init__(self, game, controller, level="level1"):
         self.game = game
@@ -170,6 +173,12 @@ class Training_Game():
         if (num_after_fire != num_before_fire or num_after_water != num_before_water):
             print("Gained collectible")
             print(reward)
+        
+        # punish for death
+        if self.magma_boy.is_dead():
+            reward[0] -= 100000
+        if self.hydro_girl.is_dead():
+            reward[1] -= 100000
 
         # check for penalizing/rewarding game end conditions
         if self.game.level_is_done(self.doors):
@@ -185,7 +194,6 @@ class Training_Game():
         else:
             return 1
 
-    
     # return the board as a 3d array (change this to torch tensor at some point?)
     def return_board(self):
         disp = pygame.surfarray.array3d(self.game.display)
@@ -206,14 +214,19 @@ class Training_Game():
     def get_closest_hydro_gem(self):
         return self.get_closest_gem(self.hydro_girl, self.water_collectibles, self.water_door)        
     
+    
+    
+    
+
+# MODEL CLASS -------------------------------------------------------------------------------------
 class Model():
     # initializing model with hyperparameters, optimizer (SGD), and loss function (MSE)
     def __init__(self, model, lr, gamma):
         self.model = model
-        self.memory = deque(maxlen=MAX_MEMORY)
+        self.memory = deque(maxlen = MAX_MEMORY)
         self.lr = lr
         self.gamma = gamma
-        self.optimizer = torch.optim.SGD(model.parameters(), lr = self.lr)
+        self.optimizer = torch.optim.Adam(model.parameters(), lr = self.lr)
         self.criterion = torch.nn.MSELoss()
 
     def remember(self, state, action, reward, next_state, done):
@@ -228,9 +241,9 @@ class Model():
         else:
             mini_sample = self.memory
 
-        states, actions, rewards, next_states, dones = zip(*mini_sample)
+        # states, actions, rewards, next_states, dones = zip(*mini_sample)
         # self.train_step(states, actions, rewards, next_states, dones)
-        for state, action, reward, nexrt_state, done in mini_sample:
+        for state, action, reward, next_state, done in mini_sample:
             self.train_step(state, action, reward, next_state, done)
         
     # training step
@@ -267,8 +280,8 @@ class Model():
 # - unmove right
 # - unmove left
 # - unmove up
-magma_boy_model = Model(Net(), 0.1, 0.95)
-hydro_girl_model = Model(Net(), 0.1, 0.95)
+magma_boy_model = Model(Net(), 1E-6, 0.95)
+hydro_girl_model = Model(Net(), 1E-6, 0.95)
 magma_boy_model.model.to(device)
 hydro_girl_model.model.to(device)
 
@@ -282,9 +295,7 @@ action_dict = {
 }
 
 games = 10
-max_iterations = 100
 run_thing = True
-epsilon = 0.99
 
 if run_thing:
     for j in range(games):
@@ -292,8 +303,9 @@ if run_thing:
         controller = GeneralController()
         game = Game()
         tg = Training_Game(game, controller)
+        epsilon = 0.99
         
-        for i in range(max_iterations):
+        while True:
             # get the initial state at the beginning of the iteration
             state = tg.return_board()
             state = state.to(device)
@@ -308,7 +320,7 @@ if run_thing:
                 magma_boy_action = torch.argmax(magma_boy_model_res).item()
                 hydro_girl_action = torch.argmax(hydro_girl_model_res).item()
                 
-            epsilon = epsilon * 0.99
+            epsilon = np.maximum(epsilon, 0.1)
             
             # get loss function based on the actions taken
             next_state, rewards, terminated = tg.play_step([action_dict[int(magma_boy_action)], action_dict[int(hydro_girl_action)]])
@@ -328,5 +340,5 @@ if run_thing:
             
 # once training is done, save the parameters to be used in a different file
 # addresses are kept locally because i was having trouble installing the pth files to where the git dir was
-torch.save(magma_boy_model.model.state_dict(), 'C:\\Users\\nickh\\Downloads\\magma_boy_params.pth')
-torch.save(hydro_girl_model.model.state_dict(), 'C:\\Users\\nickh\\Downloads\\hydro_girl_params.pth')
+torch.save(magma_boy_model.model.state_dict(), 'C:\\Users\\Jackson\\Downloads\\magma_boy_params.pth')
+torch.save(hydro_girl_model.model.state_dict(), 'C:\\Users\\Jackson\\Downloads\\hydro_girl_params.pth')
