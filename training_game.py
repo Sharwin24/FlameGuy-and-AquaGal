@@ -13,9 +13,10 @@ from collections import deque
 import torch
 from neural_network import Net
 import random
+import torch.nn as nn
 
-MAX_MEMORY = 10_000
-BATCH_SIZE = 1000
+MAX_MEMORY = 100000
+BATCH_SIZE = 32
 
 if torch.backends.mps.is_available():
 	device=torch.device("mps")
@@ -51,14 +52,18 @@ class Training_Game():
             self.magma_boy = MagmaBoy(self.magma_boy_location)
             self.hydro_girl_location = (35, 336)
             self.hydro_girl = HydroGirl(self.hydro_girl_location)
+            self.magma_boy_pos_hist = [self.magma_boy_location]
+            self.hydro_girl_pos_hist = [self.hydro_girl_location]
             
             # arrays for collectibles
             scaling_fac = 16
             self.fire_collectibles = [FireCollectible((11.5 * scaling_fac, 21 * scaling_fac)), 
-                                      FireCollectible((8.5 * scaling_fac, 15 * scaling_fac)),
+                                      FireCollectible((31 * scaling_fac, 18 * scaling_fac)),
+                                      FireCollectible((17.5 * scaling_fac, 15 * scaling_fac)),
                                       FireCollectible(((12 - (1/8)) * scaling_fac, 9 * scaling_fac))]
             self.water_collectibles = [WaterCollectible((19.5 * scaling_fac, 21 * scaling_fac)),
-                                       WaterCollectible((17.5 * scaling_fac, 15 * scaling_fac)),
+                                       WaterCollectible((31 * scaling_fac, 18 * scaling_fac)),
+                                       WaterCollectible((8.5 * scaling_fac, 15 * scaling_fac)),
                                        WaterCollectible(((24 + (3/8)) * scaling_fac, 9 * scaling_fac))]
             
         # initializing clock for timeouts
@@ -122,7 +127,8 @@ class Training_Game():
         for event in events:
             if event.type == QUIT:
                 pygame.quit()
-                sys.exit()
+                self.is_ended = True
+                self.keep_running = False
         
     # define an action space to move both players, and update the game
     # - note that the order is [magma_boy_action, hydro_girl_action]
@@ -169,21 +175,39 @@ class Training_Game():
                 num_after_water += 1
 
         # calculate reward, considering speed
-        reward = [(num_after_fire - num_before_fire) * 300 * self.scale_reward_by_time(), (num_after_water - num_before_water) * 300 * self.scale_reward_by_time()]
+        reward = [(num_after_fire - num_before_fire) * 3000 * self.scale_reward_by_time(), (num_after_water - num_before_water) * 3000 * self.scale_reward_by_time()]
         if (num_after_fire != num_before_fire or num_after_water != num_before_water):
             print("Gained collectible")
-            print(reward)
         
         # punish for death
         if self.magma_boy.is_dead():
-            reward[0] -= 100000
+            reward[0] -= 10000
         if self.hydro_girl.is_dead():
-            reward[1] -= 100000
+            reward[1] -= 10000
 
         # check for penalizing/rewarding game end conditions
         if self.game.level_is_done(self.doors):
             reward[0] += 2000
             reward[1] += 2000
+            
+        # punish characters for staying in the same place for 5 moves
+        # magma_boy_curr_location = self.magma_boy.rect.x
+        # if self.magma_boy_pos_hist[len(self.magma_boy_pos_hist) - 1] == magma_boy_curr_location:
+        #     reward[0] -= len(self.magma_boy_pos_hist) * 100
+        #     self.magma_boy_pos_hist.append(magma_boy_curr_location)
+        # else:
+        #     self.magma_boy_pos_hist = [magma_boy_curr_location]
+            
+        # hydro_girl_curr_location = self.hydro_girl.rect.x
+        # if self.hydro_girl_pos_hist[len(self.hydro_girl_pos_hist) - 1] == hydro_girl_curr_location:
+        #     reward[1] -= len(self.hydro_girl_pos_hist) * 100
+        #     self.hydro_girl_pos_hist.append(hydro_girl_curr_location)
+        # else:
+        #     self.hydro_girl_pos_hist = [hydro_girl_curr_location]
+        
+        # reward characters for getting closer to gems
+        reward[0] += (1 / self.get_closest_magma_gem()) * 10000
+        reward[1] += (1 / self.get_closest_hydro_gem()) * 10000
             
         # returns state, reward, terminated (similar to gymnasium)
         return self.return_board(), reward, self.is_ended
@@ -197,7 +221,7 @@ class Training_Game():
     # return the board as a 3d array (change this to torch tensor at some point?)
     def return_board(self):
         disp = pygame.surfarray.array3d(self.game.display)
-        return torch.from_numpy(np.moveaxis(disp, -1, 0)).float()
+        return (torch.from_numpy(np.moveaxis(disp, -1, 0)).float()).unsqueeze(0)
     
     # define the closest gem to magma boy - if all gems are collected, the door is the closest gem
     def get_closest_gem(self, player, collectibles, door):
@@ -215,8 +239,7 @@ class Training_Game():
         return self.get_closest_gem(self.hydro_girl, self.water_collectibles, self.water_door)        
     
     
-    
-    
+
 
 # MODEL CLASS -------------------------------------------------------------------------------------
 class Model():
@@ -224,19 +247,26 @@ class Model():
     def __init__(self, model, lr, gamma):
         self.model = model
         self.memory = deque(maxlen = MAX_MEMORY)
+        #self.priority = deque(maxlen = MAX_MEMORY)
         self.lr = lr
         self.gamma = gamma
         self.optimizer = torch.optim.Adam(model.parameters(), lr = self.lr)
-        self.criterion = torch.nn.MSELoss()
+        self.criterion = torch.nn.HuberLoss()
 
     def remember(self, state, action, reward, next_state, done):
         self.memory.append((state, action, reward, next_state, done)) # popleft if MAX_MEMORY is reached
+        #priority = torch.abs(reward + (self.gamma * torch.max(self.model(next_state))) - self.model(state).squeeze()[action])
+        #self.priority.append(priority)
 
     def train_short_memory(self, state, action, reward, next_state, done):
         self.train_step(state, action, reward, next_state, done)
     
     def train_long_memory(self):
         if len(self.memory) > BATCH_SIZE:
+            # conver the priorities into probabilites, and sample with probabilities favoring the higher priority states
+            #probs = torch.tensor(self.priority) / torch.sum(torch.tensor(self.priority))
+            #indices = torch.multinomial(probs, BATCH_SIZE, replacement = True)
+            #mini_sample = [self.memory[index] for index in indices]
             mini_sample = random.sample(self.memory, BATCH_SIZE)
         else:
             mini_sample = self.memory
@@ -280,8 +310,8 @@ class Model():
 # - unmove right
 # - unmove left
 # - unmove up
-magma_boy_model = Model(Net(), 1E-6, 0.95)
-hydro_girl_model = Model(Net(), 1E-6, 0.95)
+magma_boy_model = Model(Net(), 1E-7, 0.9)
+hydro_girl_model = Model(Net(), 1E-7, 0.9)
 magma_boy_model.model.to(device)
 hydro_girl_model.model.to(device)
 
@@ -294,51 +324,59 @@ action_dict = {
     5: "notjump"
 }
 
-games = 10
-run_thing = True
+games = 10000
+epsilon = 1
 
-if run_thing:
-    for j in range(games):
-        # initialize a new game
-        controller = GeneralController()
-        game = Game()
-        tg = Training_Game(game, controller)
-        epsilon = 0.99
+for i in range(games):
+    # initialize a new game
+    controller = GeneralController()
+    game = Game()
+    tg = Training_Game(game, controller)
+    
+            
+    epsilon = np.maximum(epsilon - (1 / games), 0.1)
+    
+    print("Game ", i)
+    
+    while True:
+        # get the initial state at the beginning of the iteration
+        state = nn.functional.interpolate(tg.return_board(), size = (68, 50))
+        state = state.to(device)
         
-        while True:
-            # get the initial state at the beginning of the iteration
-            state = tg.return_board()
-            state = state.to(device)
-            
-            # get the action from the model for both agents from the board
-            magma_boy_model_res = magma_boy_model.model(state)
-            hydro_girl_model_res = hydro_girl_model.model(state)
-            if np.random.rand() < epsilon:
-                magma_boy_action = np.random.randint(6)
-                hydro_girl_action = np.random.randint(6)
-            else:
-                magma_boy_action = torch.argmax(magma_boy_model_res).item()
-                hydro_girl_action = torch.argmax(hydro_girl_model_res).item()
-                
-            epsilon = np.maximum(epsilon, 0.1)
-            
-            # get loss function based on the actions taken
-            next_state, rewards, terminated = tg.play_step([action_dict[int(magma_boy_action)], action_dict[int(hydro_girl_action)]])
-            next_state = next_state.to(device)
-            
-            # apply training based on the current state, action, reward achieved from that action, and next state
-            magma_boy_model.train_short_memory(state, magma_boy_action, rewards[0], next_state, terminated)
-            hydro_girl_model.train_short_memory(state, hydro_girl_action, rewards[1], next_state, terminated)
-            
+        # get the action from the model for both agents from the board
+        magma_boy_model_res = magma_boy_model.model(state)
+        hydro_girl_model_res = hydro_girl_model.model(state)
+        
+        if np.random.rand() < epsilon:
+            magma_boy_action = np.random.randint(len(action_dict))
+            hydro_girl_action = np.random.randint(len(action_dict))
+        else:
+            magma_boy_action = torch.argmax(magma_boy_model_res).item()
+            hydro_girl_action = torch.argmax(hydro_girl_model_res).item()
+        
+        # magma_boy_action = torch.multinomial(magma_boy_model_res, num_samples = 1, replacement = True).item()
+        # hydro_girl_action = torch.multinomial(hydro_girl_model_res, num_samples = 1, replacement = True).item()
+        
+        # get loss function based on the actions taken
+        next_state, rewards, terminated = tg.play_step([action_dict[int(magma_boy_action)], action_dict[int(hydro_girl_action)]])
+        next_state = nn.functional.interpolate(next_state, size = (68, 50))
+        next_state = next_state.to(device)
+        
+        # apply training based on the current state, action, reward achieved from that action, and next state
+        magma_boy_model.train_short_memory(state, magma_boy_action, rewards[0], next_state, terminated)
+        hydro_girl_model.train_short_memory(state, hydro_girl_action, rewards[1], next_state, terminated)
+        
+        # give a more diverse replay buffer?
+        if np.random.randint(10) < 2:
             magma_boy_model.remember(state, magma_boy_action, rewards[0], next_state, terminated)
             hydro_girl_model.remember(state, hydro_girl_action, rewards[1], next_state, terminated)
-            if tg.is_ended:
-                magma_boy_model.train_long_memory()
-                hydro_girl_model.train_long_memory()
-                print("Someone died")
-                break
+            
+        if tg.is_ended:
+            magma_boy_model.train_long_memory()
+            hydro_girl_model.train_long_memory()
+            break
             
 # once training is done, save the parameters to be used in a different file
 # addresses are kept locally because i was having trouble installing the pth files to where the git dir was
-torch.save(magma_boy_model.model.state_dict(), 'C:\\Users\\Jackson\\Downloads\\magma_boy_params.pth')
-torch.save(hydro_girl_model.model.state_dict(), 'C:\\Users\\Jackson\\Downloads\\hydro_girl_params.pth')
+torch.save(magma_boy_model.model.state_dict(), 'temp/magma_boy_params.pth')
+torch.save(hydro_girl_model.model.state_dict(), 'temp/hydro_girl_params.pth')
