@@ -22,6 +22,13 @@ class Game:
         CHUNK_SIZE = 16
         DISPLAY_SIZE = (34 * CHUNK_SIZE, 25 * CHUNK_SIZE)
         self.display = pygame.Surface(DISPLAY_SIZE)
+        self.magma_display = pygame.Surface(DISPLAY_SIZE) 
+        self.hydro_display = pygame.Surface(DISPLAY_SIZE)
+    
+    def draw_to_all(self, obj,  location):
+        self.display.blit(obj, location)
+        self.magma_display.blit(obj, location)
+        self.hydro_display.blit(obj, location)
 
     def draw_level_screen(self, level_select):
         """
@@ -174,7 +181,7 @@ class Game:
                 board class object that contains information on chunk images
                 and thier locations
         """
-        self.display.blit(board.get_background(), (0, 0))
+        self.draw_to_all(board.get_background(), (0, 0))
 
     def draw_board(self, board):
         """
@@ -191,7 +198,7 @@ class Game:
         for y, row in enumerate(board.get_game_map()):
             for x, tile in enumerate(row):
                 if tile != "0":
-                    self.display.blit(
+                    self.draw_to_all(
                         board_textures[f"{tile}"], (x * 16, y * 16)
                     )
 
@@ -204,12 +211,12 @@ class Game:
                 A list of gate objects with image and location information.
         """
         for gate in gates:
-            # dispaly gate
-            self.display.blit(gate.gate_image, gate.gate_location)
+            # display gate
+            self.draw_to_all(gate.gate_image, gate.gate_location)
 
             for location in gate.plate_locations:
                 # display plate location
-                self.display.blit(gate.plate_image, location)
+                self.draw_to_all(gate.plate_image, location)
 
     def draw_doors(self, doors):
         """
@@ -222,13 +229,13 @@ class Game:
         """
         for door in doors:
             # draw door background
-            self.display.blit(door.door_background, door.background_location)
+            self.draw_to_all(door.door_background, door.background_location)
             # draw door
-            self.display.blit(door.door_image, door.door_location)
+            self.draw_to_all(door.door_image, door.door_location)
             # draw door frame
-            self.display.blit(door.frame_image, door.frame_location)
+            self.draw_to_all(door.frame_image, door.frame_location)
 
-    def draw_player(self, players):
+    def draw_player(self, players, element="Both"):
         """
         Draw the player.
 
@@ -240,22 +247,55 @@ class Game:
                 a list of player objects that contains movement data as well as
                 different images, one for each direction it can face.
         """
-        for player in players:
-            if player.moving_right:
-                player_image = player.side_image
-            elif player.moving_left:
-                player_image = pygame.transform.flip(
-                    player.side_image, True, False)
-            else:
-                player_image = player.image
-            player_image.set_colorkey((255, 0, 255))
-            self.display.blit(player_image, (player.rect.x, player.rect.y))
+        if element == "Both":
+            for player in players:
+                if player.moving_right:
+                    player_image = player.side_image
+                elif player.moving_left:
+                    player_image = pygame.transform.flip(
+                        player.side_image, True, False)
+                else:
+                    player_image = player.image
+                player_image.set_colorkey((255, 0, 255))
+                self.display.blit(player_image, (player.rect.x, player.rect.y))
+        elif element == "Magma":
+            for player in players:
+                if player.moving_right:
+                    player_image = player.side_image
+                elif player.moving_left:
+                    player_image = pygame.transform.flip(
+                        player.side_image, True, False)
+                else:
+                    player_image = player.image
+                player_image.set_colorkey((255, 0, 255))
+                self.magma_display.blit(player_image, (player.rect.x, player.rect.y))
+        elif element == "Hydro":
+            for player in players:
+                if player.moving_right:
+                    player_image = player.side_image
+                elif player.moving_left:
+                    player_image = pygame.transform.flip(
+                        player.side_image, True, False)
+                else:
+                    player_image = player.image
+                player_image.set_colorkey((255, 0, 255))
+                self.hydro_display.blit(player_image, (player.rect.x, player.rect.y))
             
-    def draw_collectibles(self, collectibles):
+            
+    def draw_collectibles(self, collectibles, element="Both"):
         # draw each of the collectibles
-        for collectible in collectibles:
-            if not collectible.is_collected:
-                self.display.blit(collectible.image, collectible.location)
+        if element == "Both":
+            for collectible in collectibles:
+                if not collectible.is_collected:
+                    self.display.blit(collectible.image, collectible.location)
+        elif element == "Magma":
+            for collectible in collectibles:
+                if not collectible.is_collected:
+                    self.magma_display.blit(collectible.image, collectible.location)
+        elif element == "Hydro":    
+            for collectible in collectibles:
+                if not collectible.is_collected:
+                    self.hydro_display.blit(collectible.image, collectible.location)
 
     def move_player(self, board, gates, players):
         """

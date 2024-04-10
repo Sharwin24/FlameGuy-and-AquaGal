@@ -5,6 +5,7 @@ from gates import Gates
 from doors import FireDoor, WaterDoor
 from collectibles import FireCollectible, WaterCollectible
 from board import Board
+from skimage import io
 from character import MagmaBoy, HydroGirl
 from controller import GeneralController
 import sys
@@ -209,8 +210,8 @@ class Training_Game():
         reward[0] += (1 / self.get_closest_magma_gem()) * 10000
         reward[1] += (1 / self.get_closest_hydro_gem()) * 10000
             
-        # returns state, reward, terminated (similar to gymnasium)
-        return self.return_board(), reward, self.is_ended
+        # returns each characters state (hiding others position), reward, terminated (similar to gymnasium)
+        return self.return_board("Magma"), self.return_board("Hydro"), reward, self.is_ended
     
     def scale_reward_by_time(self):
         if self.timer <= 120:
@@ -219,8 +220,19 @@ class Training_Game():
             return 1
 
     # return the board as a 3d array (change this to torch tensor at some point?)
-    def return_board(self):
-        disp = pygame.surfarray.array3d(self.game.display)
+    def return_board(self, element="Magma"):
+        if element == "Magma":
+            self.game.draw_player([self.magma_boy], element)
+            self.game.draw_collectibles(self.fire_collectibles, element)
+            disp = pygame.surfarray.array3d(self.game.magma_display)
+            #io.imsave('temp/magma_image.png', disp)
+        elif element == "Hydro":
+            self.game.draw_player([self.hydro_girl], element)
+            self.game.draw_collectibles(self.water_collectibles, element)
+            disp = pygame.surfarray.array3d(self.game.hydro_display)
+            #io.imsave('temp/hydro_image.png', disp)
+        else:
+            disp = pygame.surfarray.array3d(self.game.display)
         return (torch.from_numpy(np.moveaxis(disp, -1, 0)).float()).unsqueeze(0)
     
     # define the closest gem to magma boy - if all gems are collected, the door is the closest gem
@@ -340,12 +352,14 @@ for i in range(games):
     
     while True:
         # get the initial state at the beginning of the iteration
-        state = nn.functional.interpolate(tg.return_board(), size = (68, 50))
-        state = state.to(device)
+        magma_state = nn.functional.interpolate(tg.return_board(), size = (68, 50))
+        magma_state = magma_state.to(device)
+        hydro_state = nn.functional.interpolate(tg.return_board(), size = (68, 50))
+        hydro_state = hydro_state.to(device)
         
         # get the action from the model for both agents from the board
-        magma_boy_model_res = magma_boy_model.model(state)
-        hydro_girl_model_res = hydro_girl_model.model(state)
+        magma_boy_model_res = magma_boy_model.model(magma_state)
+        hydro_girl_model_res = hydro_girl_model.model(hydro_state)
         
         if np.random.rand() < epsilon:
             magma_boy_action = np.random.randint(len(action_dict))
@@ -358,18 +372,20 @@ for i in range(games):
         # hydro_girl_action = torch.multinomial(hydro_girl_model_res, num_samples = 1, replacement = True).item()
         
         # get loss function based on the actions taken
-        next_state, rewards, terminated = tg.play_step([action_dict[int(magma_boy_action)], action_dict[int(hydro_girl_action)]])
-        next_state = nn.functional.interpolate(next_state, size = (68, 50))
-        next_state = next_state.to(device)
+        next_state_magma, next_state_hydro, rewards, terminated = tg.play_step([action_dict[int(magma_boy_action)], action_dict[int(hydro_girl_action)]])
+        next_state_magma = nn.functional.interpolate(next_state_magma, size = (68, 50))
+        next_state_magma = next_state_magma.to(device)
+        next_state_hydro = nn.functional.interpolate(next_state_hydro, size = (68, 50))
+        next_state_hydro = next_state_hydro.to(device)
         
         # apply training based on the current state, action, reward achieved from that action, and next state
-        magma_boy_model.train_short_memory(state, magma_boy_action, rewards[0], next_state, terminated)
-        hydro_girl_model.train_short_memory(state, hydro_girl_action, rewards[1], next_state, terminated)
+        magma_boy_model.train_short_memory(magma_state, magma_boy_action, rewards[0], next_state_magma, terminated)
+        hydro_girl_model.train_short_memory(hydro_state, hydro_girl_action, rewards[1], next_state_hydro, terminated)
         
         # give a more diverse replay buffer?
         if np.random.randint(10) < 2:
-            magma_boy_model.remember(state, magma_boy_action, rewards[0], next_state, terminated)
-            hydro_girl_model.remember(state, hydro_girl_action, rewards[1], next_state, terminated)
+            magma_boy_model.remember(magma_state, magma_boy_action, rewards[0], next_state_magma, terminated)
+            hydro_girl_model.remember(hydro_state, hydro_girl_action, rewards[1], next_state_hydro, terminated)
             
         if tg.is_ended:
             magma_boy_model.train_long_memory()
