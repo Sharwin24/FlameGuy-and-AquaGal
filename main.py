@@ -20,27 +20,33 @@ from collectibles import FireCollectible, WaterCollectible
 
 
 def main():
+    if len(sys.argv) > 1 and (sys.argv[1] == "Both" or sys.argv[1] == "Magma" or sys.argv[1] == "Hydro"):
+        mode = sys.argv[1]
+        print("Starting in ", mode, " mode.\n")
+    else:
+        mode = "None"
+        print("No proper mode detected; running game with no AI agents.\n")
     pygame.init()
     controller = GeneralController()
     game = Game()
-    show_intro_screen(game, controller)
+    show_intro_screen(game, controller, mode)
 
-def show_intro_screen(game, controller):
+def show_intro_screen(game, controller, mode):
     intro_screen = pygame.image.load('data/screens/intro_screen.png')
     game.display.blit(intro_screen, (0, 0))
     while True:
         game.refresh_window()
         if controller.press_key(pygame.event.get(), K_RETURN):
-            show_level_screen(game, controller)
+            show_level_screen(game, controller, mode)
 
 
-def show_level_screen(game, controller):
+def show_level_screen(game, controller, mode):
     level_select = LevelSelect()
     level = game.user_select_level(level_select, controller)
-    run_game(game, controller, level)
+    run_game(game, controller, mode, level)
 
 
-def show_win_screen(game, controller):
+def show_win_screen(game, controller, mode):
     win_screen = pygame.image.load('data/screens/win_screen.png')
     win_screen.set_colorkey((255, 0, 255))
     game.display.blit(win_screen, (0, 0))
@@ -48,10 +54,10 @@ def show_win_screen(game, controller):
     while True:
         game.refresh_window()
         if controller.press_key(pygame.event.get(), K_RETURN):
-            show_level_screen(game, controller)
+            show_level_screen(game, controller, mode)
 
 
-def show_death_screen(game, controller, level):
+def show_death_screen(game, controller, mode, level):
     death_screen = pygame.image.load('data/screens/death_screen.png')
     death_screen.set_colorkey((255, 0, 255))
     game.display.blit(death_screen, (0, 0))
@@ -59,12 +65,12 @@ def show_death_screen(game, controller, level):
         game.refresh_window()
         events = pygame.event.get()
         if controller.press_key(events, K_RETURN):
-            run_game(game, controller, level)
+            run_game(game, controller, mode, level)
         if controller.press_key(events, K_ESCAPE):
-            show_level_screen(game, controller)
+            show_level_screen(game, controller, mode)
 
 
-def run_game(game, controller, level="level1"):
+def run_game(game, controller, mode, level="level1"):
     # load level data
     if level == "level1":
         board = Board('data/level1.txt')
@@ -132,10 +138,18 @@ def run_game(game, controller, level="level1"):
 
     # initialize needed classes
 
-    #arrows_controller = ArrowsController()
-    arrows_controller = AIController('/perm/magma_boy_params.pth')
-    wasd_controller = WASDController()
-    #wasd_controller = AIController('/perm/hydro_girl_params.pth')
+    if mode == "Both":
+        arrows_controller = AIController('/temp/magma_boy_params.pth', "Magma")
+        wasd_controller = AIController('/temp/hydro_girl_params.pth', "Hydro")
+    elif mode == "Magma":
+        arrows_controller = AIController('/temp/magma_boy_params.pth', "Magma")
+        wasd_controller = WASDController()
+    elif mode == "Hydro":
+        arrows_controller = ArrowsController()
+        wasd_controller = AIController('/temp/hydro_girl_params.pth', "Hydro")
+    else:
+        arrows_controller = ArrowsController()
+        wasd_controller = WASDController()
 
     clock = pygame.time.Clock()
 
@@ -152,22 +166,19 @@ def run_game(game, controller, level="level1"):
             game.draw_gates(gates)
         game.draw_doors(doors)
 
-        # draw player
+        # draw player to main screen and then to any needed for AI
         game.draw_player([magma_boy, hydro_girl])
+        game.draw_player([magma_boy], "Magma")
+        game.draw_player([hydro_girl], "Hydro")
         
         # draw collectibles
         game.draw_collectibles(fire_collectibles + water_collectibles)
+        game.draw_collectibles(fire_collectibles, "Magma")
+        game.draw_collectibles(water_collectibles, "Hydro")
 
         # move player
         arrows_controller.control_player(events, magma_boy, game)
-        #arrows_controller.control_player(events, magma_boy, game)
         wasd_controller.control_player(events, hydro_girl, game)
-        #wasd_controller.control_player(events, hydro_girl, game)
-        
-        # right here is where i see us being able to "plug in" AI players - if we change the controler to be some
-        # other kind of object, maybe one that does not read in an "events" object, but instead reads in an array of
-        # the board, then theoretically we can visualize this. getting the AI in its own object is an interesting challenge
-        # though.
 
         game.move_player(board, gates, [magma_boy, hydro_girl])
 
@@ -191,13 +202,13 @@ def run_game(game, controller, level="level1"):
 
         # special events
         if hydro_girl.is_dead() or magma_boy.is_dead():
-            show_death_screen(game, controller, level)
+            show_death_screen(game, controller, mode, level)
 
         if game.level_is_done(doors):
-            show_win_screen(game, controller)
+            show_win_screen(game, controller, mode)
 
         if controller.press_key(events, K_ESCAPE):
-            show_level_screen(game, controller)
+            show_level_screen(game, controller, mode)
 
         # close window is player clicks on [x]
         for event in events:

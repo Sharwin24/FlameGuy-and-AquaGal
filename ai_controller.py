@@ -6,11 +6,12 @@ import numpy as np
     
 # controller that takes in a gamestate and gives outputs based off of that    
 class AIController(Controller):
-    def __init__(self, dir):
+    def __init__(self, dir, element):
         # initialize and load trained NN, make sure its in eval mode
         self.net = Net()
         self.net.load_state_dict(torch.load(dir))
         self.net.eval()
+        self.element = element
         
         # actionspace
         self.action_dict = {
@@ -23,7 +24,14 @@ class AIController(Controller):
         }
         
     def control_player(self, events, player, game):
-        disp = pygame.surfarray.array3d(game.display)
+        if element == "Magma":
+            disp = pygame.surfarray.array3d(game.magma_display)
+            #io.imsave('temp/magma_image.png', disp)
+        elif element == "Hydro":
+            disp = pygame.surfarray.array3d(game.hydro_display)
+            #io.imsave('temp/hydro_image.png', disp)
+        else:
+            disp = pygame.surfarray.array3d(game.display)
         board_tensor = torch.from_numpy(np.moveaxis(disp, -1, 0)).float()
         print(self.net(board_tensor))
         move = torch.argmax(self.net(board_tensor)).item()

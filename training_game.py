@@ -90,9 +90,13 @@ class Training_Game():
 
         # draw player
         self.game.draw_player([self.magma_boy, self.hydro_girl])
-        
+        self.game.draw_player([self.magma_boy], "Magma")
+        self.game.draw_player([self.hydro_girl], "Hydro")
+
         # draw collectibles
         self.game.draw_collectibles(self.fire_collectibles + self.water_collectibles)
+        self.game.draw_collectibles(self.fire_collectibles, "Magma")
+        self.game.draw_collectibles(self.water_collectibles, "Hydro")
 
         self.game.move_player(self.board, self.gates, [self.magma_boy, self.hydro_girl])
 
@@ -176,7 +180,7 @@ class Training_Game():
                 num_after_water += 1
 
         # calculate reward, considering speed
-        reward = [(num_after_fire - num_before_fire) * 3000 * self.scale_reward_by_time(), (num_after_water - num_before_water) * 3000 * self.scale_reward_by_time()]
+        reward = [(num_after_fire - num_before_fire) * 10000 * self.scale_reward_by_time(), (num_after_water - num_before_water) * 10000 * self.scale_reward_by_time()]
         if (num_after_fire != num_before_fire or num_after_water != num_before_water):
             print("Gained collectible")
         
@@ -220,15 +224,11 @@ class Training_Game():
             return 1
 
     # return the board as a 3d array (change this to torch tensor at some point?)
-    def return_board(self, element="Magma"):
+    def return_board(self, element="Both"):
         if element == "Magma":
-            self.game.draw_player([self.magma_boy], element)
-            self.game.draw_collectibles(self.fire_collectibles, element)
             disp = pygame.surfarray.array3d(self.game.magma_display)
             #io.imsave('temp/magma_image.png', disp)
         elif element == "Hydro":
-            self.game.draw_player([self.hydro_girl], element)
-            self.game.draw_collectibles(self.water_collectibles, element)
             disp = pygame.surfarray.array3d(self.game.hydro_display)
             #io.imsave('temp/hydro_image.png', disp)
         else:
