@@ -5,7 +5,7 @@ from gates import Gates
 from doors import FireDoor, WaterDoor
 from collectibles import FireCollectible, WaterCollectible
 from board import Board
-from skimage import io
+#from skimage import io
 from character import MagmaBoy, HydroGirl
 from controller import GeneralController
 import sys
@@ -267,8 +267,6 @@ class Model():
 
     def remember(self, state, action, reward, next_state, done):
         self.memory.append((state, action, reward, next_state, done)) # popleft if MAX_MEMORY is reached
-        #priority = torch.abs(reward + (self.gamma * torch.max(self.model(next_state))) - self.model(state).squeeze()[action])
-        #self.priority.append(priority)
 
     def train_short_memory(self, state, action, reward, next_state, done):
         self.train_step(state, action, reward, next_state, done)
@@ -276,15 +274,10 @@ class Model():
     def train_long_memory(self):
         if len(self.memory) > BATCH_SIZE:
             # conver the priorities into probabilites, and sample with probabilities favoring the higher priority states
-            #probs = torch.tensor(self.priority) / torch.sum(torch.tensor(self.priority))
-            #indices = torch.multinomial(probs, BATCH_SIZE, replacement = True)
-            #mini_sample = [self.memory[index] for index in indices]
             mini_sample = random.sample(self.memory, BATCH_SIZE)
         else:
             mini_sample = self.memory
 
-        # states, actions, rewards, next_states, dones = zip(*mini_sample)
-        # self.train_step(states, actions, rewards, next_states, dones)
         for state, action, reward, next_state, done in mini_sample:
             self.train_step(state, action, reward, next_state, done)
         
@@ -311,6 +304,8 @@ class Model():
         loss = self.criterion(pred_Q.to(device), target_Q.to(device))
         loss.backward()
         self.optimizer.step()
+        
+        print(loss)
         
         
 
@@ -339,6 +334,10 @@ action_dict = {
 games = 10000
 epsilon = 1
 
+def to_grayscale(rgb_image):
+    grayscale_image = torch.sum(rgb_image * torch.tensor([0.299, 0.587, 0.114]).view(1, 3, 1, 1), dim = 1)
+    return grayscale_image.unsqueeze(1)
+
 for i in range(games):
     # initialize a new game
     controller = GeneralController()
@@ -352,9 +351,9 @@ for i in range(games):
     
     while True:
         # get the initial state at the beginning of the iteration
-        magma_state = nn.functional.interpolate(tg.return_board(), size = (68, 50))
+        magma_state = to_grayscale(nn.functional.interpolate(tg.return_board("Magma"), size = (68, 50)))
         magma_state = magma_state.to(device)
-        hydro_state = nn.functional.interpolate(tg.return_board(), size = (68, 50))
+        hydro_state = to_grayscale(nn.functional.interpolate(tg.return_board("Hydro"), size = (68, 50)))
         hydro_state = hydro_state.to(device)
         
         # get the action from the model for both agents from the board
@@ -373,9 +372,9 @@ for i in range(games):
         
         # get loss function based on the actions taken
         next_state_magma, next_state_hydro, rewards, terminated = tg.play_step([action_dict[int(magma_boy_action)], action_dict[int(hydro_girl_action)]])
-        next_state_magma = nn.functional.interpolate(next_state_magma, size = (68, 50))
+        next_state_magma = to_grayscale(nn.functional.interpolate(next_state_magma, size = (68, 50)))
         next_state_magma = next_state_magma.to(device)
-        next_state_hydro = nn.functional.interpolate(next_state_hydro, size = (68, 50))
+        next_state_hydro = to_grayscale(nn.functional.interpolate(next_state_hydro, size = (68, 50)))
         next_state_hydro = next_state_hydro.to(device)
         
         # apply training based on the current state, action, reward achieved from that action, and next state
