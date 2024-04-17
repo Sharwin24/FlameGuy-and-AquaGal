@@ -1,37 +1,28 @@
 from controller import Controller
 import torch
-from neural_network import Net
+from neural_network_deepQ import Net
 import pygame
 import numpy as np
     
 # controller that takes in a gamestate and gives outputs based off of that    
 class AIController(Controller):
-    def __init__(self, dir, element):
+    def __init__(self, dir):
         # initialize and load trained NN, make sure its in eval mode
         self.net = Net()
         self.net.load_state_dict(torch.load(dir))
         self.net.eval()
-        self.element = element
         
         # actionspace
         self.action_dict = {
             0: "right",
-            1: "notright",
-            2: "left",
-            3: "notleft",
-            4: "jump",
-            5: "notjump"
+            1: "left",
+            2: "jumpright",
+            3: "jumpleft",
+            4: "still"
         }
         
     def control_player(self, events, player, game):
-        if element == "Magma":
-            disp = pygame.surfarray.array3d(game.magma_display)
-            #io.imsave('temp/magma_image.png', disp)
-        elif element == "Hydro":
-            disp = pygame.surfarray.array3d(game.hydro_display)
-            #io.imsave('temp/hydro_image.png', disp)
-        else:
-            disp = pygame.surfarray.array3d(game.display)
+        disp = pygame.surfarray.array3d(game.display)
         board_tensor = torch.from_numpy(np.moveaxis(disp, -1, 0)).float()
         print(self.net(board_tensor))
         move = torch.argmax(self.net(board_tensor)).item()
@@ -39,14 +30,25 @@ class AIController(Controller):
         
         if move_name == "right":
             player.moving_right = True
-        elif move_name == "notright":
-            player.moving_right = False
-        elif move_name == "left":
-            player.moving_left = True
-        elif move_name == "notleft":
             player.moving_left = False
-        elif move_name == "jump":
+            player.jumping = False
+        elif move_name == "left":
+            player.moving_right = False
+            player.moving_left = True
+            player.jumping = False
+        elif move_name == "jumpright":
+            player.moving_right = True
+            player.moving_left = False
             if player.air_timer < 6:
                 player.jumping = True
-        elif move_name == "notjump":
+        elif move_name == "jumpleft":
+            player.moving_right = False
+            player.moving_left = True
+            if player.air_timer < 6:
+                player.jumping = True
+        elif move_name == "still":
+            player.moving_right = False
+            player.moving_left = False
             player.jumping = False
+        else:
+            raise(KeyError("Not a valid move!"))

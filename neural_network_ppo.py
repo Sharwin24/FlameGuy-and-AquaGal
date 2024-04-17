@@ -7,36 +7,39 @@ class Net(nn.Module):
         
         # initiating shared layers
         self.shared_layers = nn.Sequential(
-            # convolutional block
-            nn.Conv2d(1, 16, 3, stride = 1),
+            # convolutional layers
+            nn.Conv2d(1, 32, 3, stride = 2, padding = 1),
             nn.ReLU(),
-            nn.MaxPool2d(2),
-            nn.Conv2d(16, 32, 3, stride = 1),
+            nn.Dropout(0.5),
+            nn.Conv2d(32, 32, 3, stride = 2, padding = 1),
             nn.ReLU(),
-            nn.MaxPool2d(2),
-            nn.Conv2d(32, 64, 3, stride = 1), 
+            nn.Dropout(0.5),
+            nn.Conv2d(32, 32, 3, stride = 2, padding = 1),
             nn.ReLU(),
-            nn.MaxPool2d(2),
+            nn.Dropout(0.5),
+            nn.Conv2d(32, 32, 3, stride = 2, padding = 1),
+            nn.ReLU(),
+            nn.Dropout(0.5),
             
             # flattening
-            nn.Flatten()
+            nn.Flatten(),
+            
+            # linear layers
+            nn.LazyLinear(512),
+            nn.Dropout(0.5),
+            nn.ReLU(),
+            nn.LazyLinear(256),
+            nn.Dropout(0.5),
+            nn.ReLU()
         )
         
         # initializing actor layers
         self.policy_layers = nn.Sequential(
-            nn.LazyLinear(512),
-            nn.ReLU(),
-            nn.LazyLinear(256),
-            nn.ReLU(),
             nn.LazyLinear(action_space_size)
         )
         
         # initializing critic layers
         self.value_layers = nn.Sequential(
-            nn.LazyLinear(512),
-            nn.ReLU(),
-            nn.LazyLinear(256),
-            nn.ReLU(),
             nn.LazyLinear(1)
         )
         

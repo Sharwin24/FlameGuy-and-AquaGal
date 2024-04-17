@@ -42,9 +42,11 @@ class Training_Game():
             self.water_door = WaterDoor(self.water_door_location)
             self.doors = [self.fire_door, self.water_door]
 
-            self.magma_boy_location = (16, 336)
+            self.magma_boy_index = 0
+            self.magma_boy_location = [(16, 336), (24 * 16, 15 * 16), (16, 200), (24 * 16, 3 * 16)][self.magma_boy_index]
             self.magma_boy = MagmaBoy(self.magma_boy_location)
-            self.hydro_girl_location = (35, 336)
+            self.hydro_girl_index = 0
+            self.hydro_girl_location = [(16, 336), (24 * 16, 15 * 16), (16, 200), (24 * 16, 3 * 16)][self.hydro_girl_index]
             self.hydro_girl = HydroGirl(self.hydro_girl_location)
             self.magma_boy_pos_hist = [self.magma_boy_location]
             self.hydro_girl_pos_hist = [self.hydro_girl_location]
@@ -52,13 +54,11 @@ class Training_Game():
             # arrays for collectibles
             scaling_fac = 16
             self.fire_collectibles = [FireCollectible((11.5 * scaling_fac, 21 * scaling_fac)), 
-                                      FireCollectible((31 * scaling_fac, 18 * scaling_fac)),
                                       FireCollectible((17.5 * scaling_fac, 15 * scaling_fac)),
-                                      FireCollectible(((12 - (1/8)) * scaling_fac, 9 * scaling_fac))]
+                                      FireCollectible(((12 - (1/8)) * scaling_fac, 9 * scaling_fac))][self.magma_boy_index:]
             self.water_collectibles = [WaterCollectible((19.5 * scaling_fac, 21 * scaling_fac)),
-                                       WaterCollectible((31 * scaling_fac, 18 * scaling_fac)),
                                        WaterCollectible((8.5 * scaling_fac, 15 * scaling_fac)),
-                                       WaterCollectible(((24 + (3/8)) * scaling_fac, 9 * scaling_fac))]
+                                       WaterCollectible(((24 + (3/8)) * scaling_fac, 9 * scaling_fac))][self.hydro_girl_index:]
             
         # initializing clock for timeouts
         self.clock = pygame.time.Clock()
@@ -130,7 +130,7 @@ class Training_Game():
         
     # define an action space to move both players, and update the game
     # - note that the order is [magma_boy_action, hydro_girl_action]
-    def play_step(self, dirs):
+    def play_step(self, dirs):        
         # determine the number of collectibles before stepping
         num_before_fire = 0
         for collectible in self.fire_collectibles:
@@ -140,21 +140,34 @@ class Training_Game():
         for collectible in self.water_collectibles:
             if collectible.is_collected:
                 num_before_water += 1
+                
+        # determine distance from collectible beforehand
+        distance_before_fire = self.get_closest_magma_gem()
+        distance_before_water = self.get_closest_hydro_gem()
         
         # parse both directions and players at the same time
         for dir, player in zip(dirs, [self.magma_boy, self.hydro_girl]):
             if dir == "right":
                 player.moving_right = True
-            elif dir == "notright":
-                player.moving_right = False
-            elif dir == "left":
-                player.moving_left = True
-            elif dir == "notleft":
                 player.moving_left = False
-            elif dir == "jump":
+                player.jumping = False
+            elif dir == "left":
+                player.moving_right = False
+                player.moving_left = True
+                player.jumping = False
+            elif dir == "jumpright":
+                player.moving_right = True
+                player.moving_left = False
                 if player.air_timer < 6:
                     player.jumping = True
-            elif dir == "notjump":
+            elif dir == "jumpleft":
+                player.moving_right = False
+                player.moving_left = True
+                if player.air_timer < 6:
+                    player.jumping = True
+            elif dir == "still":
+                player.moving_right = False
+                player.moving_left = False
                 player.jumping = False
             else:
                 raise(KeyError("Not a valid move!"))
@@ -171,22 +184,28 @@ class Training_Game():
         for collectible in self.water_collectibles:
             if collectible.is_collected:
                 num_after_water += 1
+                
+        # determine distance from collectible after
+        distance_after_fire = self.get_closest_magma_gem()
+        distance_after_water = self.get_closest_hydro_gem()
 
         # calculate reward, considering speed
-        reward = [(num_after_fire - num_before_fire) * 10000 * self.scale_reward_by_time(), (num_after_water - num_before_water) * 10000 * self.scale_reward_by_time()]
+        reward = [((num_after_fire - num_before_fire) * 10 * self.scale_reward_by_time()) - (distance_after_fire - distance_before_fire) - 1, \
+            ((num_after_water - num_before_water) * 10 * self.scale_reward_by_time()) - (distance_after_water - distance_before_water) - 1]
+        
         if (num_after_fire != num_before_fire or num_after_water != num_before_water):
             print("Gained collectible")
         
         # punish for death
         if self.magma_boy.is_dead():
-            reward[0] -= 5000
+            reward[0] -= 15
         if self.hydro_girl.is_dead():
-            reward[1] -= 5000
+            reward[1] -= 15
 
         # check for penalizing/rewarding game end conditions
         if self.game.level_is_done(self.doors):
-            reward[0] += 2000
-            reward[1] += 2000
+            reward[0] += 15
+            reward[1] += 15
             
         # punish characters for staying in the same place for 5 moves
         # magma_boy_curr_location = self.magma_boy.rect.x
@@ -202,14 +221,11 @@ class Training_Game():
         #     self.hydro_girl_pos_hist.append(hydro_girl_curr_location)
         # else:
         #     self.hydro_girl_pos_hist = [hydro_girl_curr_location]
-        
-        # reward characters for getting closer to gems
-        reward[0] += (1 / (self.get_closest_magma_gem() + 1)) * 100
-        reward[1] += (1 / (self.get_closest_hydro_gem() + 1)) * 100
             
         # returns each characters state (hiding others position), reward, terminated (similar to gymnasium)
         return self.return_board("Magma"), self.return_board("Hydro"), reward, self.is_ended
     
+    # scale reward by time to incentive quickly obtaining rewards
     def scale_reward_by_time(self):
         if self.timer <= 120:
             return ((240 - self.timer) / 120)
@@ -226,7 +242,9 @@ class Training_Game():
             #io.imsave('temp/hydro_image.png', disp)
         else:
             disp = pygame.surfarray.array3d(self.game.display)
-        return (torch.from_numpy(np.moveaxis(disp, -1, 0)).float()).unsqueeze(0)
+        disp_tensor = torch.from_numpy(np.moveaxis(disp, -1, 0)).float()
+        disp_tensor = disp_tensor.to(device)
+        return disp_tensor.unsqueeze(0)
     
     # define the closest gem to magma boy - if all gems are collected, the door is the closest gem
     def get_closest_gem(self, player, collectibles, door):
@@ -234,7 +252,7 @@ class Training_Game():
             if not(collectible.is_collected):
                 # return np.sqrt(((player.rect[0] - collectible.location[0]) ** 2) + \
                 #     ((player.rect[1] - collectible.location[1]) ** 2))
-                return np.abs(player.rect[0] - collectible.location[0])
+                return np.abs(player.rect[0] - collectible.location[0]) # only do x location to avoid the continuous and excessive jumping? (no different in practice)
         return np.sqrt(((player.rect[0] - door.door_location[0]) ** 2) + \
                     ((player.rect[1] - door.door_location[1]) ** 2))
     
@@ -249,7 +267,7 @@ class Training_Game():
 
 # MODEL CLASS -------------------------------------------------------------------------------------
 class Model():
-    def __init__(self, actor_critic, ppo_clip_val = 0.2, target_kl_div = 0.01, max_policy_iters = 80, value_train_iters = 80, policy_lr = 1E-4, value_lr = 1E-4):
+    def __init__(self, actor_critic, ppo_clip_val = 0.2, target_kl_div = 0.01, max_policy_iters = 80, value_train_iters = 80, policy_lr = 1E-4):
         self.ac = actor_critic
         self.ppo_clip_val = ppo_clip_val
         self.target_kl_div = target_kl_div
@@ -260,20 +278,14 @@ class Model():
         # initializing policy optimizer with its respecitve learning rate
         policy_params = list(self.ac.shared_layers.parameters()) + list(self.ac.policy_layers.parameters())
         self.policy_optim = torch.optim.Adam(policy_params, lr = policy_lr)
+        self.policy_scheduler = torch.optim.lr_scheduler.ExponentialLR(self.policy_optim, gamma = 0.9)
         
-        # initializing value optimizer with its respective learning rate
-        value_params = list(self.ac.shared_layers.parameters()) + list(self.ac.value_layers.parameters())
-        self.value_optim = torch.optim.Adam(value_params, lr = value_lr)
-        
-    def train_policy(self, state, actions, old_log_probs, gaes):
+    def train_policy(self, state, actions, old_log_probs, gaes, returns):
         for _ in range(self.max_policy_iters):
             self.policy_optim.zero_grad()
             
             # get new logitcs from policy function of model for the according state
             new_logits = self.ac.policy(torch.stack(state).squeeze(1))
-            if torch.isnan(new_logits).any():
-                break
-            new_probs = nn.functional.softmax(new_logits)
             new_logits_distrib = torch.distributions.categorical.Categorical(logits = new_logits)
             
             # determine the new log probs according to the actions
@@ -283,63 +295,49 @@ class Model():
             r = torch.exp(new_log_probs - old_log_probs)
             clipped_r = r.clamp(1 - self.ppo_clip_val, 1 + self.ppo_clip_val)
             
+            # get values from model and determine the loss given returns
+            values = self.ac.value(torch.stack(state).squeeze(1))
+            value_loss = torch.mean((returns - values) ** 2)
+            
             # calculate loss with clipped ratio, full, and take the min of the two
             clipped_l = clipped_r * gaes
             full_l = r * gaes
-            loss = -torch.min(clipped_l, full_l).mean() # return as negative to minimize
-            
-            # calculate and subtract entropy
-            entropy = -(new_probs * torch.log(new_probs)).mean()
-            loss -= self.ent_reg * entropy
+            loss = torch.mean(-torch.min(clipped_l, full_l)) + value_loss # return as negative to minimize
+            loss -= torch.mean(self.ent_reg * torch.mean(new_logits_distrib.entropy())) # subtract entropy term
             
             # backpropogate, update policy
             loss.backward()
             self.policy_optim.step()
             
             # check to see if we have gone over kldiv - if we have, break
-            kl_div = (old_log_probs - new_log_probs).mean()
+            kl_div = torch.mean(old_log_probs - new_log_probs)
             if kl_div > self.target_kl_div:
                 break
-            
-    def train_value(self, state, returns):
-        for _ in range(self.value_train_iters):
-            self.value_optim.zero_grad()
-            
-            # get values from model and determine the loss given returns
-            values = self.ac.value(torch.stack(state).squeeze(1))
-            value_loss = ((returns - values) ** 2).mean()
-            
-            # backpropogate, update value
-            value_loss.backward()
-            self.value_optim.step()
+        self.policy_scheduler.step()
         
 
+
+
+# TRAINING ----------------------------------------------------------------------------------------
 # create both AI models, playing the same game
 # both models take in a board (given by tg.return_board()) and give an action from the following action space:
-# - move right
-# - move left
-# - move up
-# - unmove right
-# - unmove left
-# - unmove up
 action_dict = {
     0: "right",
-    1: "notright",
-    2: "left",
-    3: "notleft",
-    4: "jump",
-    5: "notjump"
+    1: "left",
+    2: "jumpright",
+    3: "jumpleft",
+    4: "still"
 }
 
-magma_boy_model = Model(Net(6), ppo_clip_val = 0.2, policy_lr = 6E-6, value_lr = 1E-4)
-hydro_girl_model = Model(Net(6), ppo_clip_val = 0.2, policy_lr = 6E-6, value_lr = 1E-4)
+magma_boy_model = Model(Net(len(action_dict)), ppo_clip_val = 0.2, policy_lr = 3E-4, value_lr = 1E-5)
+hydro_girl_model = Model(Net(len(action_dict)), ppo_clip_val = 0.2, policy_lr = 1E-4, value_lr = 1E-6)
 magma_boy_model.ac.to(device)
 hydro_girl_model.ac.to(device)
 
 # convert the rgb image to grayscale, changing number of color channels from 3 to 1
 def preprocess_image(rgb_image):
-    smaller_image = nn.functional.interpolate(rgb_image, size = (68 * 2, 50 * 2))
-    grayscale_image = torch.sum(smaller_image * torch.tensor([0.299, 0.587, 0.114]).view(1, 3, 1, 1), dim = 1)
+    smaller_image = nn.functional.interpolate(rgb_image, size = (84, 84))
+    grayscale_image = torch.sum(smaller_image * torch.tensor([0.299, 0.587, 0.114], device = device).view(1, 3, 1, 1), dim = 1)
     return grayscale_image.unsqueeze(1).to(device)
 
 # rollout training data for magma model and hydro model
@@ -359,14 +357,14 @@ def rollout(magma_model, hydro_model, tg, max_steps = 1000):
     magma_reward = 0
     hydro_reward = 0
     
-    for _ in range(max_steps):
+    for j in range(max_steps):
         # get logits and val from model given the current state
-        magma_logits, magma_val = magma_model(torch.tensor(magma_state, dtype = torch.float32, device = device))
-        hydro_logits, hydro_val = hydro_model(torch.tensor(hydro_state, dtype = torch.float32, device = device))
+        magma_logits, magma_val = magma_model(magma_state)
+        hydro_logits, hydro_val = hydro_model(hydro_state)
         magma_val = magma_val.item()
         hydro_val = hydro_val.item()
         
-        # get the distribution of actions and sample from it
+        # get the categorical distribution of actions and sample from it
         magma_act_distrib = torch.distributions.categorical.Categorical(logits = magma_logits)
         hydro_act_distrib = torch.distributions.categorical.Categorical(logits = hydro_logits)
         magma_act = magma_act_distrib.sample()
@@ -382,11 +380,12 @@ def rollout(magma_model, hydro_model, tg, max_steps = 1000):
         # sample new states, rewards, and term from given action
         magma_next_state, hydro_next_state, reward, done = tg.play_step((action_dict[magma_act], action_dict[hydro_act]))
         
-        # update training data with what was seen from the step just played
-        for i, item in enumerate((magma_state, magma_act, reward[0], magma_val, magma_act_logprob)):
-            magma_training_data[i].append(item)
-        for i, item in enumerate((hydro_state, hydro_act, reward[1], hydro_val, hydro_act_logprob)):
-            hydro_training_data[i].append(item)
+        # update training data with what was seen from the step just played (once every four frames)
+        if j % 4 == 0:
+            for i, item in enumerate((magma_state, magma_act, reward[0], magma_val, magma_act_logprob)):
+                magma_training_data[i].append(item)
+            for i, item in enumerate((hydro_state, hydro_act, reward[1], hydro_val, hydro_act_logprob)):
+                hydro_training_data[i].append(item)
         
         # update running rewards and update previous state to most recently recorded state
         magma_reward += reward[0]
@@ -414,7 +413,7 @@ def discount_rewards(rewards, gamma = 0.99):
     return torch.tensor(new_rewards[::-1], device = device)
 
 # calculate GAEs (general advantage estimates) based off of rewards and values
-def calculate_gaes(rewards, values, gamma = 0.9, decay = 0.97):
+def calculate_gaes(rewards, values, gamma = 0.9, decay = 0.99):
     next_values = np.concatenate([values[1:], [0]])
     deltas = [rew + gamma * next_val - val for rew, val, next_val in zip(rewards, values, next_values)]
     
@@ -437,6 +436,9 @@ for i in range(games):
     
     # perform rollout
     magma_training_data, hydro_training_data, magma_reward, hydro_reward = rollout(magma_boy_model.ac, hydro_girl_model.ac, tg)
+    
+    print("Magma reward ", magma_reward)
+    print("Hydro reward ", hydro_reward)
     
     # take indeices that randomly swap around the training data
     rand_index = np.random.permutation(len(magma_training_data[0])) # shouldn't actually matter which training data model is used here
@@ -474,12 +476,10 @@ for i in range(games):
     hydro_returns = torch.tensor(discount_rewards(hydro_training_data_new[2]), dtype = torch.float32, device = device)
     
     # model training
-    magma_boy_model.train_policy(magma_state, magma_acts, magma_log_probs, magma_gaes)
-    magma_boy_model.train_value(magma_state, magma_returns)
-    hydro_girl_model.train_policy(hydro_state, hydro_acts, hydro_log_probs, hydro_gaes)
-    hydro_girl_model.train_value(hydro_state, hydro_returns)
+    magma_boy_model.train_policy(magma_state, magma_acts, magma_log_probs, magma_gaes, magma_returns)
+    hydro_girl_model.train_policy(hydro_state, hydro_acts, hydro_log_probs, hydro_gaes, hydro_returns)
             
 # once training is done, save the parameters to be used in a different file
 # addresses are kept locally because i was having trouble installing the pth files to where the git dir was
-torch.save(magma_boy_model.model.state_dict(), 'temp/magma_boy_params_ppo.pth')
-torch.save(hydro_girl_model.model.state_dict(), 'temp/hydro_girl_params_ppo.pth')
+torch.save(magma_boy_model.ac.state_dict(), 'temp/magma_boy_params_ppo.pth')
+torch.save(hydro_girl_model.ac.state_dict(), 'temp/hydro_girl_params_ppo.pth')

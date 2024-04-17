@@ -8,11 +8,10 @@ from board import Board
 #from skimage import io
 from character import MagmaBoy, HydroGirl
 from controller import GeneralController
-import sys
 import numpy as np
 from collections import deque
 import torch
-from neural_network import Net
+from neural_network_deepQ import Net
 import random
 import torch.nn as nn
 
@@ -152,16 +151,25 @@ class Training_Game():
         for dir, player in zip(dirs, [self.magma_boy, self.hydro_girl]):
             if dir == "right":
                 player.moving_right = True
-            elif dir == "notright":
-                player.moving_right = False
-            elif dir == "left":
-                player.moving_left = True
-            elif dir == "notleft":
                 player.moving_left = False
-            elif dir == "jump":
+                player.jumping = False
+            elif dir == "left":
+                player.moving_right = False
+                player.moving_left = True
+                player.jumping = False
+            elif dir == "jumpright":
+                player.moving_right = True
+                player.moving_left = False
                 if player.air_timer < 6:
                     player.jumping = True
-            elif dir == "notjump":
+            elif dir == "jumpleft":
+                player.moving_right = False
+                player.moving_left = True
+                if player.air_timer < 6:
+                    player.jumping = True
+            elif dir == "still":
+                player.moving_right = False
+                player.moving_left = False
                 player.jumping = False
             else:
                 raise(KeyError("Not a valid move!"))
@@ -217,6 +225,7 @@ class Training_Game():
         # returns each characters state (hiding others position), reward, terminated (similar to gymnasium)
         return self.return_board("Magma"), self.return_board("Hydro"), reward, self.is_ended
     
+    # creating a scaling factor to incentivize getting the reward more quickly
     def scale_reward_by_time(self):
         if self.timer <= 120:
             return ((240 - self.timer) / 120)
@@ -259,18 +268,20 @@ class Model():
     def __init__(self, model, lr, gamma):
         self.model = model
         self.memory = deque(maxlen = MAX_MEMORY)
-        #self.priority = deque(maxlen = MAX_MEMORY)
         self.lr = lr
         self.gamma = gamma
         self.optimizer = torch.optim.Adam(model.parameters(), lr = self.lr)
         self.criterion = torch.nn.HuberLoss()
 
+    # append SARS to the memory of the model; if the memory is at max length, replace previous memories with the new one
     def remember(self, state, action, reward, next_state, done):
         self.memory.append((state, action, reward, next_state, done)) # popleft if MAX_MEMORY is reached
 
+    # train the model on a SARS set - occurs at each frame
     def train_short_memory(self, state, action, reward, next_state, done):
         self.train_step(state, action, reward, next_state, done)
     
+    # train the model on a minibatch taken from the model's memory
     def train_long_memory(self):
         if len(self.memory) > BATCH_SIZE:
             # conver the priorities into probabilites, and sample with probabilities favoring the higher priority states
@@ -294,14 +305,14 @@ class Model():
         
         self.optimizer.zero_grad()
         
-        current_Q_vals = self.model(state)
-        pred_Q = current_Q_vals.squeeze()[action]
+        current_Q_vals = self.model(state) # get Q values from current state
+        pred_Q = current_Q_vals.squeeze()[action] # get the Q value of the given action taken
         
-        next_Q_vals = self.model(next_state)
-        max_next_Q = torch.max(next_Q_vals).item()
-        target_Q = reward + (self.gamma * max_next_Q * (1 - int(terminated)))
+        next_Q_vals = self.model(next_state) # get the Q values of the next state
+        max_next_Q = torch.max(next_Q_vals).item() # determine the Q value of the best action at the next state
+        target_Q = reward + (self.gamma * max_next_Q * (1 - int(terminated))) # bellman equation
         
-        loss = self.criterion(pred_Q.to(device), target_Q.to(device))
+        loss = self.criterion(pred_Q.to(device), target_Q.to(device)) # loss function compares current Q to Q from bellman
         loss.backward()
         self.optimizer.step()
         
@@ -324,19 +335,20 @@ hydro_girl_model.model.to(device)
 
 action_dict = {
     0: "right",
-    1: "notright",
-    2: "left",
-    3: "notleft",
-    4: "jump",
-    5: "notjump"
+    1: "left",
+    2: "jumpright",
+    3: "jumpleft",
+    4: "still"
 }
 
 games = 10000
 epsilon = 1
 
-def to_grayscale(rgb_image):
-    grayscale_image = torch.sum(rgb_image * torch.tensor([0.299, 0.587, 0.114]).view(1, 3, 1, 1), dim = 1)
-    return grayscale_image.unsqueeze(1)
+# convert the rgb image to grayscale, changing number of color channels from 3 to 1
+def preprocess_image(rgb_image):
+    smaller_image = nn.functional.interpolate(rgb_image, size = (68, 50))
+    grayscale_image = torch.sum(smaller_image * torch.tensor([0.299, 0.587, 0.114], device = device).view(1, 3, 1, 1), dim = 1)
+    return grayscale_image.unsqueeze(1).to(device)
 
 for i in range(games):
     # initialize a new game
@@ -344,22 +356,21 @@ for i in range(games):
     game = Game()
     tg = Training_Game(game, controller)
     
-            
+    # decay epsilon based on the number of games that have been played; min epsilon is 0.1
     epsilon = np.maximum(epsilon - (1 / games), 0.1)
     
     print("Game ", i)
     
     while True:
         # get the initial state at the beginning of the iteration
-        magma_state = to_grayscale(nn.functional.interpolate(tg.return_board("Magma"), size = (68, 50)))
-        magma_state = magma_state.to(device)
-        hydro_state = to_grayscale(nn.functional.interpolate(tg.return_board("Hydro"), size = (68, 50)))
-        hydro_state = hydro_state.to(device)
+        magma_state = preprocess_image(tg.return_board("Magma").to(device))
+        hydro_state = preprocess_image(tg.return_board("Hydro").to(device))
         
         # get the action from the model for both agents from the board
         magma_boy_model_res = magma_boy_model.model(magma_state)
         hydro_girl_model_res = hydro_girl_model.model(hydro_state)
         
+        # choose an action with an epsilon greedy strategy
         if np.random.rand() < epsilon:
             magma_boy_action = np.random.randint(len(action_dict))
             hydro_girl_action = np.random.randint(len(action_dict))
@@ -367,15 +378,10 @@ for i in range(games):
             magma_boy_action = torch.argmax(magma_boy_model_res).item()
             hydro_girl_action = torch.argmax(hydro_girl_model_res).item()
         
-        # magma_boy_action = torch.multinomial(magma_boy_model_res, num_samples = 1, replacement = True).item()
-        # hydro_girl_action = torch.multinomial(hydro_girl_model_res, num_samples = 1, replacement = True).item()
-        
         # get loss function based on the actions taken
         next_state_magma, next_state_hydro, rewards, terminated = tg.play_step([action_dict[int(magma_boy_action)], action_dict[int(hydro_girl_action)]])
-        next_state_magma = to_grayscale(nn.functional.interpolate(next_state_magma, size = (68, 50)))
-        next_state_magma = next_state_magma.to(device)
-        next_state_hydro = to_grayscale(nn.functional.interpolate(next_state_hydro, size = (68, 50)))
-        next_state_hydro = next_state_hydro.to(device)
+        next_state_magma = preprocess_image(next_state_magma.to(device))
+        next_state_hydro = preprocess_image(next_state_hydro.to(device))
         
         # apply training based on the current state, action, reward achieved from that action, and next state
         magma_boy_model.train_short_memory(magma_state, magma_boy_action, rewards[0], next_state_magma, terminated)
@@ -393,5 +399,5 @@ for i in range(games):
             
 # once training is done, save the parameters to be used in a different file
 # addresses are kept locally because i was having trouble installing the pth files to where the git dir was
-torch.save(magma_boy_model.model.state_dict(), 'temp/magma_boy_params.pth')
-torch.save(hydro_girl_model.model.state_dict(), 'temp/hydro_girl_params.pth')
+torch.save(magma_boy_model.model.state_dict(), 'temp/magma_boy_params_deepQ.pth')
+torch.save(hydro_girl_model.model.state_dict(), 'temp/hydro_girl_params_deepQ.pth')

@@ -12,7 +12,7 @@ from game import Game
 from board import Board
 from character import MagmaBoy, HydroGirl
 from controller import ArrowsController, WASDController, GeneralController
-from ai_controller import AIController
+from ai_controller_ppo import AIController
 from gates import Gates
 from doors import FireDoor, WaterDoor
 from level_select import LevelSelect
@@ -137,16 +137,19 @@ def run_game(game, controller, mode, level="level1"):
 
 
     # initialize needed classes
+    
+    magma_file = 'temp/magma_boy_params_ppo.pth'
+    hydro_file = 'temp/hydro_girl_params_ppo.pth'
 
     if mode == "Both":
-        arrows_controller = AIController('/temp/magma_boy_params.pth', "Magma")
-        wasd_controller = AIController('/temp/hydro_girl_params.pth', "Hydro")
+        arrows_controller = AIController(magma_file, "Magma")
+        wasd_controller = AIController(hydro_file, "Hydro")
     elif mode == "Magma":
-        arrows_controller = AIController('/temp/magma_boy_params.pth', "Magma")
+        arrows_controller = AIController(magma_file, "Magma")
         wasd_controller = WASDController()
     elif mode == "Hydro":
         arrows_controller = ArrowsController()
-        wasd_controller = AIController('/temp/hydro_girl_params.pth', "Hydro")
+        wasd_controller = AIController(hydro_file, "Hydro")
     else:
         arrows_controller = ArrowsController()
         wasd_controller = WASDController()

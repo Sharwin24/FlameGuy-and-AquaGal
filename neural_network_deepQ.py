@@ -11,7 +11,7 @@ class Net(nn.Module):
         self.pool = nn.MaxPool2d(2, 2)
         self.fc1 = nn.Linear(1536, 512)
         self.fc2 = nn.Linear(512, 256)
-        self.fc3 = nn.Linear(256, 6)
+        self.fc3 = nn.Linear(256, 5)
         self.relu = nn.ReLU()
         self.sm = nn.Softmax(dim = 0)
     
