@@ -14,12 +14,12 @@ class Net(nn.Module):
             nn.Conv2d(32, 32, 3, stride = 2, padding = 1),
             nn.ReLU(),
             nn.Dropout(0.5),
-            nn.Conv2d(32, 32, 3, stride = 2, padding = 1),
-            nn.ReLU(),
-            nn.Dropout(0.5),
-            nn.Conv2d(32, 32, 3, stride = 2, padding = 1),
-            nn.ReLU(),
-            nn.Dropout(0.5),
+            # nn.Conv2d(32, 32, 3, stride = 2, padding = 1),
+            # nn.ReLU(),
+            # nn.Dropout(0.5),
+            # nn.Conv2d(32, 32, 3, stride = 2, padding = 1),
+            # nn.ReLU(),
+            # nn.Dropout(0.5),
             
             # flattening
             nn.Flatten(),
